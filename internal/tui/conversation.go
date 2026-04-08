@@ -148,17 +148,50 @@ func (m ConversationModel) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, msgView, inputView)
 }
 
+// renderWelcome renders the welcome screen shown on startup.
+func (m ConversationModel) renderWelcome(height int) string {
+	contentWidth := m.width - 4
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
+
+	banner := lipgloss.NewStyle().
+		Foreground(colorPrimary).
+		Bold(true).
+		Render(`
+ __     __ _  _           ____
+ \ \   / /(_)| |__   ___ / ___|  ___  _ __ __   __ ___
+  \ \ / / | || '_ \ / _ \\___ \ / _ \| '__|\ \ / // _ \
+   \ V /  | || |_) ||  __/ ___) |  __/| |    \ V /|  __/
+    \_/   |_||_.__/  \___||____/ \___||_|     \_/  \___|`)
+
+	commands := lipgloss.NewStyle().
+		Foreground(colorText).
+		Render(`
+  Commands:
+    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("/help") + `       Show available commands
+    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("undo") + `        Rollback last change
+    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("routes") + `      Show current route table
+    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("status") + `      Show manifest status
+    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("quit") + `        Exit VibeServe`)
+
+	welcome := lipgloss.NewStyle().
+		Foreground(colorSuccess).
+		Bold(true).
+		Render("\n  Welcome to VibeServe! Type your message to create an API.")
+
+	content := lipgloss.JoinVertical(lipgloss.Left, banner, commands, welcome)
+
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Height(height).
+		Render(content)
+}
+
 // renderMessages renders the scrollable message list.
 func (m ConversationModel) renderMessages(height int) string {
 	if len(m.messages) == 0 {
-		empty := lipgloss.NewStyle().
-			Foreground(colorMuted).
-			Width(m.width - 4).
-			Render("Type a prompt to get started...")
-		return lipgloss.NewStyle().
-			Height(height).
-			Width(m.width).
-			Render(empty)
+		return m.renderWelcome(height)
 	}
 
 	// Build all rendered message lines

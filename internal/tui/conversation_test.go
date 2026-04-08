@@ -153,8 +153,8 @@ func TestConversation_EmptyView(t *testing.T) {
 	m.SetSize(80, 20)
 
 	view := m.View()
-	if !strings.Contains(view, "Type a prompt") {
-		t.Error("expected placeholder text in empty conversation view")
+	if !strings.Contains(view, "VibeServe") {
+		t.Error("expected welcome screen in empty conversation view")
 	}
 }
 

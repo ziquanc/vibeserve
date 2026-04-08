@@ -27,10 +27,24 @@ import (
 var version = "0.1.0"
 
 func main() {
+	var port int
+	var host string
+	var manifestPath string
+	var configPath string
+
 	rootCmd := &cobra.Command{
 		Use:   "vibeserve",
 		Short: "AI-powered stateful API backend from natural language",
+		// Default action: run dev mode (no subcommand needed)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDev(configPath, manifestPath, host, port)
+		},
 	}
+
+	rootCmd.Flags().IntVarP(&port, "port", "p", 0, "Server port (overrides config)")
+	rootCmd.Flags().StringVar(&host, "host", "", "Server host (overrides config)")
+	rootCmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
+	rootCmd.Flags().StringVarP(&configPath, "config", "c", ".vibe/config.yaml", "Path to config.yaml")
 
 	rootCmd.AddCommand(upCmd())
 	rootCmd.AddCommand(versionCmd())
