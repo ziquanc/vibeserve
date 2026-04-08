@@ -141,8 +141,17 @@ func createProvider(cfg *config.Config) (llm.Provider, error) {
 		return llm.NewClaudeProvider(apiKey, cfg.Model), nil
 	case "ollama":
 		return llm.NewOllamaProvider(cfg.OllamaHost, cfg.Model), nil
+	case "openai":
+		apiKey := cfg.APIKey()
+		if apiKey == "" {
+			return nil, fmt.Errorf("provider 'openai' requires %s environment variable to be set", cfg.APIKeyEnv)
+		}
+		if cfg.BaseURL == "" {
+			return nil, fmt.Errorf("provider 'openai' requires base_url in config")
+		}
+		return llm.NewOpenAIProvider(apiKey, cfg.Model, cfg.BaseURL), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q (supported: claude, ollama)", cfg.Provider)
+		return nil, fmt.Errorf("unknown provider %q (supported: claude, openai, ollama)", cfg.Provider)
 	}
 }
 

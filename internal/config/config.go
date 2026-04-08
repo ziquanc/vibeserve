@@ -13,6 +13,7 @@ type Config struct {
 	APIKeyEnv  string       `yaml:"api_key_env"`
 	Model      string       `yaml:"model"`
 	OllamaHost string       `yaml:"ollama_host"`
+	BaseURL    string       `yaml:"base_url"` // OpenAI-compatible endpoint URL
 	Server     ServerConfig `yaml:"server"`
 }
 
@@ -77,8 +78,15 @@ func (c *Config) Validate() error {
 		if c.OllamaHost == "" {
 			return fmt.Errorf("provider 'ollama' requires ollama_host to be set")
 		}
+	case "openai":
+		if c.APIKey() == "" {
+			return fmt.Errorf("provider 'openai' requires %s environment variable to be set", c.APIKeyEnv)
+		}
+		if c.BaseURL == "" {
+			return fmt.Errorf("provider 'openai' requires base_url to be set")
+		}
 	default:
-		return fmt.Errorf("unknown provider %q (supported: claude, ollama)", c.Provider)
+		return fmt.Errorf("unknown provider %q (supported: claude, openai, ollama)", c.Provider)
 	}
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("invalid server port: %d", c.Server.Port)
