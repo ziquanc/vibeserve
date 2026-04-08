@@ -61,9 +61,14 @@ func NewOpenAIProvider(apiKey, model, baseURL string, opts ...OpenAIOption) *Ope
 }
 
 type openaiRequest struct {
-	Model     string       `json:"model"`
-	MaxTokens int          `json:"max_tokens"`
-	Messages  []openaiMsg  `json:"messages"`
+	Model          string            `json:"model"`
+	MaxTokens      int               `json:"max_tokens"`
+	Messages       []openaiMsg       `json:"messages"`
+	ResponseFormat *openaiRespFormat `json:"response_format,omitempty"`
+}
+
+type openaiRespFormat struct {
+	Type string `json:"type"`
 }
 
 type openaiMsg struct {
@@ -97,9 +102,10 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 	msgs = append(msgs, openaiMsg{Role: "user", Content: prompt})
 
 	reqBody := openaiRequest{
-		Model:     o.model,
-		MaxTokens: o.maxTokens,
-		Messages:  msgs,
+		Model:          o.model,
+		MaxTokens:      o.maxTokens,
+		Messages:       msgs,
+		ResponseFormat: &openaiRespFormat{Type: "json_object"},
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)

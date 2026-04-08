@@ -281,7 +281,12 @@ func ExtractJSON(raw string) (string, error) {
 		return raw[first : last+1], nil
 	}
 
-	return "", fmt.Errorf("no JSON object found in LLM response")
+	// Show a preview of what the LLM returned for debugging
+	preview := raw
+	if len(preview) > 200 {
+		preview = preview[:200] + "..."
+	}
+	return "", fmt.Errorf("no JSON object found in LLM response: %q", preview)
 }
 
 // ParseManifestResponse extracts and parses a manifest from raw LLM text output.

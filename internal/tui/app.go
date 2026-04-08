@@ -212,10 +212,14 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the full TUI.
 func (m RootModel) View() tea.View {
 	if m.quitting {
-		return tea.NewView("Shutting down...")
+		v := tea.NewView("Shutting down...")
+		v.AltScreen = true
+		return v
 	}
 	if !m.ready {
-		return tea.NewView("Initializing...")
+		v := tea.NewView("Initializing...")
+		v.AltScreen = true
+		return v
 	}
 
 	collapsed := m.width < 100
@@ -236,7 +240,9 @@ func (m RootModel) View() tea.View {
 		)
 	}
 
-	return tea.NewView(header + "\n" + content + "\n" + status)
+	v := tea.NewView(header + "\n" + content + "\n" + status)
+	v.AltScreen = true
+	return v
 }
 
 // applyPrompt dispatches engine.Apply as a tea.Cmd (runs in a goroutine).
