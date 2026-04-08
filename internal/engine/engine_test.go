@@ -323,10 +323,14 @@ func TestEngine_Apply_EventsEmitted(t *testing.T) {
 }
 
 func TestEngine_Apply_ValidationFailure(t *testing.T) {
-	// Manifest with no name (will fail validation)
+	// Manifest with invalid column type (cannot be auto-repaired)
 	badManifest := &manifest.Manifest{
 		Version: "1.0",
-		Name:    "", // invalid
+		Name:    "bad",
+		Schemas: []manifest.Schema{{
+			Table:   "t",
+			Columns: []manifest.Column{{Name: "x", Type: "INVALID_TYPE"}},
+		}},
 	}
 
 	eng, _, _ := newTestEngine(t, &mockProvider{manifest: badManifest})

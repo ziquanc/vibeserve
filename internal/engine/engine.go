@@ -97,6 +97,10 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 	}
 
 	e.bus.Publish(Event{Type: EventLLMRequestCompleted, Data: newManifest})
+
+	// 2.5. Auto-repair common LLM omissions
+	repairManifest(newManifest, e.manifest)
+
 	e.bus.Publish(Event{Type: EventManifestGenerated, Data: newManifest})
 
 	// 3. Validate
@@ -273,6 +277,52 @@ func (e *Engine) saveManifest() error {
 	}
 	path := filepath.Join(e.vibeDir, "manifest.json")
 	return os.WriteFile(path, data, 0o644)
+}
+
+// repairManifest fills in common fields that LLMs often omit.
+// This runs before validation to avoid rejecting otherwise-good output.
+func repairManifest(m *manifest.Manifest, previous *manifest.Manifest) {
+	if m.Version == "" {
+		m.Version = "1.0"
+	}
+	if m.Name == "" {
+		if previous != nil && previous.Name != "" {
+			m.Name = previous.Name
+		} else if m.Description != "" {
+			// Derive name from description
+			name := strings.ToLower(m.Description)
+			name = strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+					return r
+				}
+				if r == ' ' {
+					return '-'
+				}
+				return -1
+			}, name)
+			if len(name) > 40 {
+				name = name[:40]
+			}
+			if name == "" {
+				name = "my-api"
+			}
+			m.Name = name
+		} else {
+			m.Name = "my-api"
+		}
+	}
+	if m.Schemas == nil {
+		m.Schemas = []manifest.Schema{}
+	}
+	if m.Routes == nil {
+		m.Routes = []manifest.Route{}
+	}
+	if m.Scripts == nil {
+		m.Scripts = []manifest.Script{}
+	}
+	if m.Seeds == nil {
+		m.Seeds = []manifest.Seed{}
+	}
 }
 
 // FormatChangeSummary produces a human-readable summary of changes.
