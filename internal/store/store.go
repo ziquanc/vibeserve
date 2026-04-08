@@ -17,6 +17,7 @@ var _ engine.DataStore = (*Store)(nil)
 // Store is the SQLite-backed DataStore implementation.
 type Store struct {
 	db          *sql.DB
+	dsn         string
 	boolColumns map[string]bool // key: "table.column"
 }
 
@@ -36,6 +37,7 @@ func New(dsn string) (*Store, error) {
 	}
 	return &Store{
 		db:          db,
+		dsn:         dsn,
 		boolColumns: make(map[string]bool),
 	}, nil
 }
@@ -56,6 +58,23 @@ func (s *Store) ApplySchemas(schemas []manifest.Schema) error {
 		}
 	}
 	return nil
+}
+
+// AddColumn executes an ALTER TABLE ADD COLUMN statement for the given column.
+func (s *Store) AddColumn(table string, col manifest.Column) error {
+	ddl := BuildAddColumnSQL(table, col)
+	if _, err := s.db.Exec(ddl); err != nil {
+		return fmt.Errorf("add column %s.%s: %w", table, col.Name, err)
+	}
+	if strings.ToUpper(col.Type) == "BOOLEAN" {
+		s.boolColumns[table+"."+col.Name] = true
+	}
+	return nil
+}
+
+// DSN returns the data source name used to open the database.
+func (s *Store) DSN() string {
+	return s.dsn
 }
 
 // Seed inserts multiple rows into a table (used for initial data seeding).

@@ -131,3 +131,36 @@ func TestBuildCreateTableSQL_References(t *testing.T) {
 		t.Errorf("missing REFERENCES clause: %s", sql)
 	}
 }
+
+func TestBuildAddColumnSQL_Simple(t *testing.T) {
+	col := manifest.Column{Name: "email", Type: "TEXT"}
+	sql := BuildAddColumnSQL("users", col)
+	expected := "ALTER TABLE users ADD COLUMN email TEXT"
+	if sql != expected {
+		t.Errorf("expected %q, got %q", expected, sql)
+	}
+}
+
+func TestBuildAddColumnSQL_WithDefault(t *testing.T) {
+	col := manifest.Column{Name: "active", Type: "BOOLEAN", Default: true}
+	sql := BuildAddColumnSQL("users", col)
+	if !strings.Contains(sql, "active INTEGER DEFAULT 1") {
+		t.Errorf("expected 'active INTEGER DEFAULT 1', got: %s", sql)
+	}
+}
+
+func TestBuildAddColumnSQL_RequiredWithDefault(t *testing.T) {
+	col := manifest.Column{Name: "status", Type: "TEXT", Required: true, Default: "active"}
+	sql := BuildAddColumnSQL("users", col)
+	if !strings.Contains(sql, "NOT NULL") || !strings.Contains(sql, "DEFAULT 'active'") {
+		t.Errorf("expected NOT NULL DEFAULT 'active': %s", sql)
+	}
+}
+
+func TestBuildAddColumnSQL_Unique(t *testing.T) {
+	col := manifest.Column{Name: "slug", Type: "TEXT", Unique: true}
+	sql := BuildAddColumnSQL("users", col)
+	if !strings.Contains(sql, "UNIQUE") {
+		t.Errorf("expected UNIQUE: %s", sql)
+	}
+}

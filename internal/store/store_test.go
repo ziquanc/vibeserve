@@ -294,3 +294,49 @@ func TestQuery_WithParams(t *testing.T) {
 		t.Errorf("expected Nina, got %v", rows[0]["name"])
 	}
 }
+
+func TestAddColumn(t *testing.T) {
+	s := newTestStore(t)
+	s.Insert("users", map[string]any{"name": "Alice"})
+
+	col := manifest.Column{Name: "email", Type: "TEXT"}
+	if err := s.AddColumn("users", col); err != nil {
+		t.Fatalf("AddColumn: %v", err)
+	}
+
+	row, err := s.Insert("users", map[string]any{"name": "Bob", "email": "bob@test.com"})
+	if err != nil {
+		t.Fatalf("Insert after AddColumn: %v", err)
+	}
+	if row["email"] != "bob@test.com" {
+		t.Errorf("expected email 'bob@test.com', got %v", row["email"])
+	}
+
+	oldRow, _ := s.QueryOne("SELECT * FROM users WHERE name = ?", []any{"Alice"})
+	if oldRow["email"] != nil {
+		t.Errorf("expected nil email for old row, got %v", oldRow["email"])
+	}
+}
+
+func TestAddColumn_Boolean(t *testing.T) {
+	s := newTestStore(t)
+	col := manifest.Column{Name: "verified", Type: "BOOLEAN", Default: false}
+	if err := s.AddColumn("users", col); err != nil {
+		t.Fatalf("AddColumn: %v", err)
+	}
+	row, _ := s.Insert("users", map[string]any{"name": "Charlie", "verified": true})
+	if v, ok := row["verified"].(bool); !ok || !v {
+		t.Errorf("expected verified=true (bool), got %T: %v", row["verified"], row["verified"])
+	}
+}
+
+func TestStoreDSN(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer s.Close()
+	if s.DSN() != ":memory:" {
+		t.Errorf("expected ':memory:', got %q", s.DSN())
+	}
+}

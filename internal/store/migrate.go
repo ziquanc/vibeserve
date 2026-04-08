@@ -88,3 +88,28 @@ func BuildCreateTableSQL(schema manifest.Schema) string {
 		schema.Table,
 		strings.Join(cols, ",\n  "))
 }
+
+// BuildAddColumnSQL generates an ALTER TABLE ADD COLUMN statement.
+func BuildAddColumnSQL(table string, col manifest.Column) string {
+	sqlType := mapSQLiteType(col.Type)
+	var parts []string
+	parts = append(parts, col.Name)
+	parts = append(parts, sqlType)
+	if col.Required {
+		if col.Default != nil {
+			parts = append(parts, "NOT NULL")
+			parts = append(parts, "DEFAULT "+defaultValue(col))
+		}
+	} else {
+		if col.Default != nil {
+			parts = append(parts, "DEFAULT "+defaultValue(col))
+		}
+	}
+	if col.Unique {
+		parts = append(parts, "UNIQUE")
+	}
+	if col.References != "" {
+		parts = append(parts, "REFERENCES "+col.References)
+	}
+	return fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", table, strings.Join(parts, " "))
+}
