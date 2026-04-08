@@ -180,6 +180,7 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 func (o *OpenAIProvider) parseSSE(body string) (string, error) {
 	var accumulated strings.Builder
 	chunkCount := 0
+	reasoningChunks := 0
 	lineCount := 0
 
 	for _, line := range strings.Split(body, "\n") {
@@ -240,27 +241,38 @@ func (o *OpenAIProvider) parseSSE(body string) (string, error) {
 		}
 
 		if len(chunk.Choices) > 0 {
-			// Try both delta.content and delta.reasoning_content
-			content := chunk.Choices[0].Delta.Content
-			if content == "" {
-				content = chunk.Choices[0].Delta.ReasoningContent
+			delta := chunk.Choices[0].Delta
+
+			// reasoning_content = model's chain-of-thought (show as progress, don't include in output)
+			if delta.ReasoningContent != "" {
+				reasoningChunks++
+				if o.OnChunk != nil {
+					o.OnChunk(fmt.Sprintf("Thinking... (%d tokens)", reasoningChunks))
+				}
 			}
-			if content != "" {
-				accumulated.WriteString(content)
+
+			// content = the actual output (this is what we want)
+			if delta.Content != "" {
+				accumulated.WriteString(delta.Content)
 				chunkCount++
 
 				if o.OnChunk != nil {
-					o.OnChunk(accumulated.String())
+					o.OnChunk(fmt.Sprintf("Generating... (%d chars)", accumulated.Len()))
 				}
 			}
 		}
 	}
 
 	text := accumulated.String()
-	log.Printf("[openai] streaming complete: %d lines read, %d chunks with content, %d chars total", lineCount, chunkCount, len(text))
+	log.Printf("[openai] streaming complete: %d lines, %d reasoning chunks, %d content chunks, %d chars output",
+		lineCount, reasoningChunks, chunkCount, len(text))
 
 	if text == "" && lineCount > 0 {
-		log.Printf("[openai] WARNING: read %d lines but found no content — SSE format may be unexpected", lineCount)
+		if reasoningChunks > 0 {
+			log.Printf("[openai] WARNING: model sent %d reasoning chunks but no content — it may have hit the token limit during thinking", reasoningChunks)
+		} else {
+			log.Printf("[openai] WARNING: read %d lines but found no content", lineCount)
+		}
 	}
 
 	return text, nil
