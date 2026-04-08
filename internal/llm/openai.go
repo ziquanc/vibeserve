@@ -14,7 +14,7 @@ import (
 	"github.com/vibeserve/vibeserve/internal/manifest"
 )
 
-const openaiDefaultMaxTok = 16384
+const openaiDefaultMaxTok = 65536
 
 // OpenAIProvider calls any OpenAI-compatible API (OpenAI, x.ai, z.ai, Groq, Together, etc.)
 type OpenAIProvider struct {
