@@ -150,41 +150,40 @@ func (m ConversationModel) View() string {
 
 // renderWelcome renders the welcome screen shown on startup.
 func (m ConversationModel) renderWelcome(height int) string {
-	contentWidth := m.width - 4
-	if contentWidth < 20 {
-		contentWidth = 20
+	w := m.width - 2
+	if w < 20 {
+		w = 20
 	}
 
-	banner := lipgloss.NewStyle().
-		Foreground(colorPrimary).
-		Bold(true).
-		Render(`
- __     __ _  _           ____
- \ \   / /(_)| |__   ___ / ___|  ___  _ __ __   __ ___
-  \ \ / / | || '_ \ / _ \\___ \ / _ \| '__|\ \ / // _ \
-   \ V /  | || |_) ||  __/ ___) |  __/| |    \ V /|  __/
-    \_/   |_||_.__/  \___||____/ \___||_|     \_/  \___|`)
+	bannerStyle := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+	cmdKeyStyle := lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
+	cmdDescStyle := lipgloss.NewStyle().Foreground(colorMuted)
+	welcomeStyle := lipgloss.NewStyle().Foreground(colorSuccess).Bold(true)
 
-	commands := lipgloss.NewStyle().
-		Foreground(colorText).
-		Render(`
-  Commands:
-    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("/help") + `       Show available commands
-    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("undo") + `        Rollback last change
-    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("routes") + `      Show current route table
-    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("status") + `      Show manifest status
-    ` + lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Render("quit") + `        Exit VibeServe`)
+	var lines []string
+	lines = append(lines, "")
+	lines = append(lines, bannerStyle.Render("  __     __ _ _          ____"))
+	lines = append(lines, bannerStyle.Render(`  \ \   / /(_)| |__   __/ ___|  ___ _ ____   _____`))
+	lines = append(lines, bannerStyle.Render(`   \ \ / / | || '_ \ / _ \___ \ / _ \ '__\ \ / / _ \`))
+	lines = append(lines, bannerStyle.Render(`    \ V /  | || |_) |  __/___) |  __/ |   \ V /  __/`))
+	lines = append(lines, bannerStyle.Render(`     \_/   |_||_.__/ \___|____/ \___|_|    \_/ \___|`))
+	lines = append(lines, "")
+	lines = append(lines, "")
+	lines = append(lines, "  "+cmdKeyStyle.Render("Commands:"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("/help")+"       "+cmdDescStyle.Render("Show available commands"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("undo")+"        "+cmdDescStyle.Render("Rollback last change"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("routes")+"      "+cmdDescStyle.Render("Show current route table"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("status")+"      "+cmdDescStyle.Render("Show manifest status"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("quit")+"        "+cmdDescStyle.Render("Exit VibeServe"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+welcomeStyle.Render("Welcome to VibeServe! Type your message to create an API."))
 
-	welcome := lipgloss.NewStyle().
-		Foreground(colorSuccess).
-		Bold(true).
-		Render("\n  Welcome to VibeServe! Type your message to create an API.")
-
-	content := lipgloss.JoinVertical(lipgloss.Left, banner, commands, welcome)
+	content := strings.Join(lines, "\n")
 
 	return lipgloss.NewStyle().
-		Width(m.width).
+		Width(w).
 		Height(height).
+		Padding(1, 0).
 		Render(content)
 }
 
