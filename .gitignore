@@ -1,2 +1,4 @@
 .vibe/
 *.db
+.DS_Store
+vibeserve
