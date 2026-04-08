@@ -105,10 +105,19 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			m.quitting = true
 			m.cancel()
 			return m, tea.Quit
+
+		case "esc":
+			// Esc clears input if conversation focused, otherwise switches to conversation
+			if m.focus != PaneConversation {
+				m.focus = PaneConversation
+				m.conversation.focused = true
+				m.dashboard.focused = false
+			}
+			return m, nil
 
 		case "tab":
 			if m.focus == PaneConversation {

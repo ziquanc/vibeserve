@@ -161,8 +161,8 @@ func TestConversation_EmptyView(t *testing.T) {
 func TestConversation_UndoCommand(t *testing.T) {
 	m := NewConversationModel()
 	m.focused = true
-	m.input = "undo"
-	m.cursorPos = 4
+	m.input = "/undo"
+	m.cursorPos = 5
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Text: "enter"})
 

@@ -63,20 +63,26 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 			if trimmed == "" {
 				return m, nil
 			}
-			// Check for built-in commands
+			m.input = ""
+			m.cursorPos = 0
+
+			// Handle slash commands
 			lower := strings.ToLower(trimmed)
-			if lower == "undo" {
-				m.input = ""
-				m.cursorPos = 0
+			switch {
+			case lower == "/undo":
 				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
 				m.AddMessage(Message{Role: RoleSystem, Content: "Undoing..."})
 				return m, func() tea.Msg { return UndoRequestMsg{} }
+			case lower == "/quit" || lower == "/exit":
+				return m, tea.Quit
+			case lower == "/help":
+				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+				m.AddMessage(Message{Role: RoleAssistant, Content: "Commands:\n  /help   — Show this help\n  /undo   — Rollback last change\n  /quit   — Exit VibeServe\n  Ctrl+C  — Quit immediately\n  Tab     — Switch pane\n  Esc     — Back to chat\n\nAnything else is sent to the AI to create/modify your API."})
+				return m, nil
+			default:
+				// Send as prompt to AI
+				return m, func() tea.Msg { return SubmitPromptMsg(trimmed) }
 			}
-
-			prompt := trimmed
-			m.input = ""
-			m.cursorPos = 0
-			return m, func() tea.Msg { return SubmitPromptMsg(prompt) }
 
 		case "backspace":
 			if m.cursorPos > 0 && len(m.input) > 0 {
@@ -171,10 +177,13 @@ func (m ConversationModel) renderWelcome(height int) string {
 	lines = append(lines, "")
 	lines = append(lines, "  "+cmdKeyStyle.Render("Commands:"))
 	lines = append(lines, "    "+cmdKeyStyle.Render("/help")+"       "+cmdDescStyle.Render("Show available commands"))
-	lines = append(lines, "    "+cmdKeyStyle.Render("undo")+"        "+cmdDescStyle.Render("Rollback last change"))
-	lines = append(lines, "    "+cmdKeyStyle.Render("routes")+"      "+cmdDescStyle.Render("Show current route table"))
-	lines = append(lines, "    "+cmdKeyStyle.Render("status")+"      "+cmdDescStyle.Render("Show manifest status"))
-	lines = append(lines, "    "+cmdKeyStyle.Render("quit")+"        "+cmdDescStyle.Render("Exit VibeServe"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("/undo")+"       "+cmdDescStyle.Render("Rollback last change"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("/quit")+"       "+cmdDescStyle.Render("Exit VibeServe"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+cmdKeyStyle.Render("Shortcuts:"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("Tab")+"         "+cmdDescStyle.Render("Switch pane"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("Esc")+"         "+cmdDescStyle.Render("Back to chat"))
+	lines = append(lines, "    "+cmdKeyStyle.Render("Ctrl+C")+"      "+cmdDescStyle.Render("Quit immediately"))
 	lines = append(lines, "")
 	lines = append(lines, "  "+welcomeStyle.Render("Welcome to VibeServe! Type your message to create an API."))
 
