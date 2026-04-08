@@ -234,12 +234,15 @@ if status == undefined {
 	}
 
 	b.WriteString("## Output Rules\n\n")
+	b.WriteString("When the user asks you to CREATE, MODIFY, ADD, UPDATE, or DELETE an API, table, route, or feature:\n")
 	b.WriteString("1. Output ONLY valid JSON — no markdown fences, no explanation, no commentary.\n")
 	b.WriteString("2. The JSON must be a complete manifest object with all required fields.\n")
 	b.WriteString("3. Include ALL existing schemas, routes, scripts, and seeds, plus any changes.\n")
 	b.WriteString("4. Every route must reference a script that exists in the scripts array.\n")
 	b.WriteString("5. Every seed must reference a table that exists in the schemas array.\n")
-	b.WriteString("6. Script code must be valid Tengo. Use response.fail() and log.err() — never use the reserved 'error' keyword as a function name.\n")
+	b.WriteString("6. Script code must be valid Tengo. Use response.fail() and log.err() — never use the reserved 'error' keyword as a function name.\n\n")
+	b.WriteString("When the user asks a QUESTION (e.g., 'what can you do?', 'how does this work?', 'what is your model?'):\n")
+	b.WriteString("Respond with a helpful text answer. Do NOT output JSON for questions — just answer naturally.\n")
 
 	return b.String()
 }
@@ -289,16 +292,27 @@ func ExtractJSON(raw string) (string, error) {
 	return "", fmt.Errorf("no JSON object found in LLM response: %q", preview)
 }
 
+// ChatOnlyError is returned when the LLM response contains no JSON manifest,
+// only conversational text. The Text field contains the LLM's response.
+type ChatOnlyError struct {
+	Text string
+}
+
+func (e *ChatOnlyError) Error() string {
+	return "LLM returned conversational text, not a manifest"
+}
+
 // ParseManifestResponse extracts and parses a manifest from raw LLM text output.
+// If no JSON is found, returns a ChatOnlyError containing the raw text.
 func ParseManifestResponse(raw string) (*manifest.Manifest, error) {
 	jsonStr, err := ExtractJSON(raw)
 	if err != nil {
-		return nil, err
+		return nil, &ChatOnlyError{Text: raw}
 	}
 
 	var m manifest.Manifest
 	if err := json.Unmarshal([]byte(jsonStr), &m); err != nil {
-		return nil, fmt.Errorf("parse manifest JSON: %w", err)
+		return nil, &ChatOnlyError{Text: raw}
 	}
 
 	return &m, nil

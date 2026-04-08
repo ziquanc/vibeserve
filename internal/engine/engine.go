@@ -57,9 +57,10 @@ func NewEngine(cfg EngineConfig) *Engine {
 
 // ApplyResult holds the result of processing a user prompt.
 type ApplyResult struct {
-	Changes  []manifest.Change
-	Warnings []string
-	Manifest *manifest.Manifest
+	Changes      []manifest.Change
+	Warnings     []string
+	Manifest     *manifest.Manifest
+	ChatResponse string // non-empty when LLM responded conversationally (no manifest changes)
 }
 
 // Manifest returns the current manifest.
@@ -93,6 +94,13 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 
 	newManifest, err := e.provider.Generate(ctx, e.manifest, prompt, e.history)
 	if err != nil {
+		// If the LLM responded with conversational text (no JSON), return it as a chat message
+		if chatErr, ok := err.(*llm.ChatOnlyError); ok {
+			e.history = append(e.history, llm.Message{Role: "user", Content: prompt})
+			e.history = append(e.history, llm.Message{Role: "assistant", Content: chatErr.Text})
+			result.ChatResponse = chatErr.Text
+			return result, nil
+		}
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
@@ -327,6 +335,9 @@ func repairManifest(m *manifest.Manifest, previous *manifest.Manifest) {
 
 // FormatChangeSummary produces a human-readable summary of changes.
 func FormatChangeSummary(result *ApplyResult) string {
+	if result.ChatResponse != "" {
+		return result.ChatResponse
+	}
 	if len(result.Changes) == 0 {
 		return "No changes detected."
 	}

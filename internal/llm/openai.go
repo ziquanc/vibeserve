@@ -102,10 +102,9 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 	msgs = append(msgs, openaiMsg{Role: "user", Content: prompt})
 
 	reqBody := openaiRequest{
-		Model:          o.model,
-		MaxTokens:      o.maxTokens,
-		Messages:       msgs,
-		ResponseFormat: &openaiRespFormat{Type: "json_object"},
+		Model:     o.model,
+		MaxTokens: o.maxTokens,
+		Messages:  msgs,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
