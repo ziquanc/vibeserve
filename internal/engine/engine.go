@@ -109,16 +109,22 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 	// 2.5. Auto-repair common LLM omissions
 	repairManifest(newManifest, e.manifest)
 
+	log.Printf("[engine] manifest received: %s (%d schemas, %d routes, %d scripts)",
+		newManifest.Name, len(newManifest.Schemas), len(newManifest.Routes), len(newManifest.Scripts))
+
 	e.bus.Publish(Event{Type: EventManifestGenerated, Data: newManifest})
 
 	// 3. Validate
 	if err := manifest.Validate(newManifest); err != nil {
+		log.Printf("[engine] validation failed: %v", err)
 		e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
 		return nil, fmt.Errorf("manifest validation failed: %w", err)
 	}
+	log.Printf("[engine] manifest validated OK")
 
 	// 4. Diff
 	changes := manifest.Diff(e.manifest, newManifest)
+	log.Printf("[engine] diff computed: %d changes", len(changes))
 	e.bus.Publish(Event{Type: EventManifestDiffComputed, Data: changes})
 	result.Changes = changes
 
@@ -178,7 +184,9 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 	}
 
 	// 7. Update routes and scripts
-	for _, c := range changes {
+	log.Printf("[engine] applying %d changes to routes and scripts", len(changes))
+	for i, c := range changes {
+		log.Printf("[engine] change %d/%d: %s %s", i+1, len(changes), c.Type, c.Detail)
 		switch c.Type {
 		case manifest.ChangeAddRoute:
 			e.trie.Insert(c.Route.Method, c.Route.Path, c.Route.Script)
@@ -187,7 +195,6 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 		case manifest.ChangeUpdateRoute:
 			e.trie.Remove(c.Route.Method, c.Route.Path)
 			e.trie.Insert(c.Route.Method, c.Route.Path, c.Route.Script)
-			e.scripts[c.Route.Script] = c.Route.Script
 			e.bus.Publish(Event{Type: EventRouteUpdated, Data: c.Detail})
 
 		case manifest.ChangeRemoveRoute:
@@ -222,6 +229,7 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 	if err := e.saveManifest(); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("failed to save manifest: %v", err))
 	}
+	log.Printf("[engine] manifest saved, %d total routes now active", len(newManifest.Routes))
 
 	// Update conversation history
 	manifestJSON, _ := json.Marshal(newManifest)
@@ -230,6 +238,7 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 		llm.Message{Role: "assistant", Content: string(manifestJSON)},
 	)
 
+	log.Printf("[engine] Apply complete: %d changes, %d warnings", len(result.Changes), len(result.Warnings))
 	return result, nil
 }
 

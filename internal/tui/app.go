@@ -215,7 +215,13 @@ func (m RootModel) View() tea.View {
 func (m RootModel) applyPrompt(prompt string) tea.Cmd {
 	eng := m.engine
 	ctx := m.ctx
-	return func() tea.Msg {
+	return func() (msg tea.Msg) {
+		// Recover from panics so TUI never gets stuck
+		defer func() {
+			if r := recover(); r != nil {
+				msg = ApplyResultMsg{Err: fmt.Errorf("internal error: %v", r)}
+			}
+		}()
 		result, err := eng.Apply(ctx, prompt)
 		return ApplyResultMsg{Result: result, Err: err}
 	}
@@ -224,7 +230,12 @@ func (m RootModel) applyPrompt(prompt string) tea.Cmd {
 // applyUndo dispatches engine.Undo as a tea.Cmd.
 func (m RootModel) applyUndo() tea.Cmd {
 	eng := m.engine
-	return func() tea.Msg {
+	return func() (msg tea.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				msg = UndoResultMsg{Err: fmt.Errorf("internal error: %v", r)}
+			}
+		}()
 		err := eng.Undo()
 		return UndoResultMsg{Err: err}
 	}
