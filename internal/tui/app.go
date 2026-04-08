@@ -1,0 +1,234 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/vibeserve/vibeserve/internal/engine"
+)
+
+// Pane identifies which side of the split layout has focus.
+type Pane int
+
+const (
+	PaneConversation Pane = iota
+	PaneDashboard
+)
+
+// RootModel is the top-level Bubble Tea model for the VibeServe TUI.
+type RootModel struct {
+	// Layout
+	width  int
+	height int
+	focus  Pane
+
+	// Sub-models
+	header       HeaderModel
+	conversation ConversationModel
+	dashboard    DashboardModel
+	statusBar    StatusBarModel
+
+	// Engine integration
+	engine    *engine.Engine
+	bus       *engine.Bus
+	serverURL string
+	ctx       context.Context
+	cancel    context.CancelFunc
+
+	// State
+	ready    bool
+	quitting bool
+}
+
+// NewRootModel creates a RootModel wired to the given engine and bus.
+func NewRootModel(eng *engine.Engine, bus *engine.Bus, serverURL string) RootModel {
+	ctx, cancel := context.WithCancel(context.Background())
+	return RootModel{
+		focus:        PaneConversation,
+		header:       NewHeaderModel(serverURL),
+		conversation: NewConversationModel(),
+		dashboard:    NewDashboardModel(),
+		statusBar:    NewStatusBarModel(),
+		engine:       eng,
+		bus:          bus,
+		serverURL:    serverURL,
+		ctx:          ctx,
+		cancel:       cancel,
+	}
+}
+
+// Init satisfies tea.Model. Requests window size on startup.
+func (m RootModel) Init() tea.Cmd {
+	requestSize := func() tea.Msg {
+		return tea.RequestWindowSize()
+	}
+	return tea.Batch(
+		requestSize,
+		m.conversation.Init(),
+	)
+}
+
+// Update handles all incoming messages and delegates to sub-models.
+func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.ready = true
+
+		// Distribute sizes to sub-models
+		m.header.width = m.width
+		m.statusBar.width = m.width
+
+		contentHeight := m.height - headerHeight - statusBarHeight
+		if contentHeight < 1 {
+			contentHeight = 1
+		}
+
+		collapsed := m.width < 100
+
+		if collapsed {
+			m.conversation.SetSize(m.width, contentHeight)
+			m.dashboard.SetSize(0, 0)
+		} else {
+			leftWidth := m.width * 60 / 100
+			rightWidth := m.width - leftWidth
+			m.conversation.SetSize(leftWidth, contentHeight)
+			m.dashboard.SetSize(rightWidth, contentHeight)
+		}
+
+		return m, nil
+
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.quitting = true
+			m.cancel()
+			return m, tea.Quit
+
+		case "tab":
+			if m.focus == PaneConversation {
+				m.focus = PaneDashboard
+			} else {
+				m.focus = PaneConversation
+			}
+			m.conversation.focused = (m.focus == PaneConversation)
+			m.dashboard.focused = (m.focus == PaneDashboard)
+			return m, nil
+		}
+
+		// Delegate key to focused pane
+		if m.focus == PaneConversation {
+			var cmd tea.Cmd
+			m.conversation, cmd = m.conversation.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else {
+			var cmd tea.Cmd
+			m.dashboard, cmd = m.dashboard.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
+	case SubmitPromptMsg:
+		// User pressed Enter with a non-empty prompt
+		prompt := string(msg)
+		m.conversation.AddMessage(Message{Role: RoleUser, Content: prompt})
+		m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Thinking..."})
+
+		cmd := m.applyPrompt(prompt)
+		cmds = append(cmds, cmd)
+
+	case ApplyResultMsg:
+		// Remove the "Thinking..." message
+		m.conversation.RemoveLastSystem()
+
+		if msg.Err != nil {
+			m.conversation.AddMessage(Message{
+				Role:    RoleError,
+				Content: fmt.Sprintf("Error: %v", msg.Err),
+			})
+		} else {
+			summary := engine.FormatChangeSummary(msg.Result)
+			m.conversation.AddMessage(Message{
+				Role:    RoleAssistant,
+				Content: summary,
+			})
+			// Update dashboard with new manifest state
+			if msg.Result != nil && msg.Result.Manifest != nil {
+				m.dashboard.UpdateFromManifest(msg.Result.Manifest)
+			}
+		}
+
+	case UndoResultMsg:
+		m.conversation.RemoveLastSystem()
+		if msg.Err != nil {
+			m.conversation.AddMessage(Message{
+				Role:    RoleError,
+				Content: fmt.Sprintf("Undo failed: %v", msg.Err),
+			})
+		} else {
+			m.conversation.AddMessage(Message{
+				Role:    RoleAssistant,
+				Content: "Undo successful",
+			})
+		}
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// View renders the full TUI.
+func (m RootModel) View() tea.View {
+	if m.quitting {
+		return tea.NewView("Shutting down...")
+	}
+	if !m.ready {
+		return tea.NewView("Initializing...")
+	}
+
+	collapsed := m.width < 100
+
+	header := m.header.View()
+	status := m.statusBar.View()
+
+	var content string
+	if collapsed {
+		content = m.conversation.View()
+	} else {
+		content = RenderSplitPane(
+			m.conversation.View(),
+			m.dashboard.View(),
+			m.width,
+			m.height-headerHeight-statusBarHeight,
+			m.focus,
+		)
+	}
+
+	return tea.NewView(header + "\n" + content + "\n" + status)
+}
+
+// applyPrompt dispatches engine.Apply as a tea.Cmd (runs in a goroutine).
+func (m RootModel) applyPrompt(prompt string) tea.Cmd {
+	eng := m.engine
+	ctx := m.ctx
+	return func() tea.Msg {
+		result, err := eng.Apply(ctx, prompt)
+		return ApplyResultMsg{Result: result, Err: err}
+	}
+}
+
+// applyUndo dispatches engine.Undo as a tea.Cmd.
+func (m RootModel) applyUndo() tea.Cmd {
+	eng := m.engine
+	return func() tea.Msg {
+		err := eng.Undo()
+		return UndoResultMsg{Err: err}
+	}
+}
