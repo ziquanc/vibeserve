@@ -154,6 +154,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
+	case StreamingChunkMsg:
+		// Update the last system message ("Thinking...") with streaming text
+		m.conversation.UpdateLastSystem("Generating: " + fmt.Sprintf("%d chars received...", len(msg.Text)))
+
 	// Engine bus events
 	case RouteAddedMsg:
 		m.dashboard.AddRouteEvent(string(msg))

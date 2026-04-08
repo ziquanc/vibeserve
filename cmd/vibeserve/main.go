@@ -385,6 +385,13 @@ func runDev(configPath, manifestPath, host string, port int) error {
 	rootModel := tui.NewRootModel(eng, bus, serverURL)
 	p := tea.NewProgram(rootModel)
 
+	// Wire streaming callback — send chunks to TUI for live progress
+	if openaiP, ok := provider.(*llm.OpenAIProvider); ok {
+		openaiP.OnChunk = func(accumulated string) {
+			p.Send(tui.StreamingChunkMsg{Text: accumulated})
+		}
+	}
+
 	// Bridge bus events to TUI
 	tui.NewBridge(p, bus)
 

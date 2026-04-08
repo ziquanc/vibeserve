@@ -53,6 +53,16 @@ func (m *ConversationModel) RemoveLastSystem() {
 	}
 }
 
+// UpdateLastSystem updates the content of the most recent system message.
+func (m *ConversationModel) UpdateLastSystem(content string) {
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].Role == RoleSystem {
+			m.messages[i].Content = content
+			return
+		}
+	}
+}
+
 // Update handles key events for the conversation.
 func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 	switch msg := msg.(type) {

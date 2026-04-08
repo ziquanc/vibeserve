@@ -86,6 +86,11 @@ type LLMStartedMsg string
 // LLMCompletedMsg is published when an LLM request completes.
 type LLMCompletedMsg struct{}
 
+// StreamingChunkMsg carries incremental LLM output for live display.
+type StreamingChunkMsg struct {
+	Text string // accumulated text so far
+}
+
 // LogMsg carries a log event from the engine.
 type LogMsg struct {
 	Level   string
