@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -146,104 +147,92 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 		return nil, fmt.Errorf("openai API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	contentType := resp.Header.Get("Content-Type")
-	log.Printf("[openai] response Content-Type: %s", contentType)
+	log.Printf("[openai] response status 200, Content-Type: %s", resp.Header.Get("Content-Type"))
 
-	// Determine if response is SSE streaming or regular JSON.
-	// We sent stream:true, so most providers will respond with SSE.
-	// Read the body once and decide based on content.
-	bodyBytes, err = io.ReadAll(resp.Body)
+	// Read from the live stream line-by-line for real-time progress.
+	// We sent stream:true, so the response should be SSE.
+	// If it's not SSE, we detect it from the first line and fall back.
+	text, err := o.readStream(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
+		return nil, err
 	}
 
-	bodyStr := string(bodyBytes)
-	log.Printf("[openai] response: %d bytes, Content-Type: %s", len(bodyBytes), contentType)
-
-	// Detect SSE format: lines starting with "data:"
-	if strings.Contains(contentType, "event-stream") || strings.Contains(bodyStr, "\ndata:") || strings.HasPrefix(bodyStr, "data:") {
-		text, err := o.parseSSE(bodyStr)
-		if err != nil {
-			return nil, err
-		}
-		if text != "" {
-			return ParseManifestResponse(text)
-		}
-		log.Printf("[openai] SSE parse returned empty, trying JSON parse")
-	}
-
-	// Non-streaming: parse as regular JSON
-	return o.parseNonStreaming(bodyBytes)
+	return ParseManifestResponse(text)
 }
 
-// parseSSE parses Server-Sent Events from the response body string.
-func (o *OpenAIProvider) parseSSE(body string) (string, error) {
+// readStream reads the response body line-by-line for real-time progress.
+// Handles both SSE format (data: {...}) and plain JSON fallback.
+func (o *OpenAIProvider) readStream(body io.Reader) (string, error) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer
+
 	var accumulated strings.Builder
+	var fallbackBuf strings.Builder // captures all lines in case we need JSON fallback
 	chunkCount := 0
 	reasoningChunks := 0
 	lineCount := 0
+	isSSE := false
 
-	for _, line := range strings.Split(body, "\n") {
+	for scanner.Scan() {
+		line := scanner.Text()
 		lineCount++
+		fallbackBuf.WriteString(line + "\n")
 
-		// Log first few lines for debugging
-		if lineCount <= 5 {
+		// Log first few lines
+		if lineCount <= 3 {
 			preview := line
-			if len(preview) > 200 {
-				preview = preview[:200] + "..."
+			if len(preview) > 150 {
+				preview = preview[:150] + "..."
 			}
-			log.Printf("[openai] SSE line %d: %q", lineCount, preview)
+			log.Printf("[openai] line %d: %q", lineCount, preview)
 		}
 
-		// Skip empty lines (SSE event separators)
+		// Detect format from first data line
+		if lineCount == 1 && !strings.HasPrefix(line, "data:") && strings.HasPrefix(line, "{") {
+			// First line is JSON, not SSE — read rest and parse as non-streaming
+			log.Printf("[openai] detected non-streaming JSON response")
+			rest, _ := io.ReadAll(body)
+			fullBody := line + "\n" + string(rest)
+			return o.parseJSONResponse([]byte(fullBody))
+		}
+
 		if line == "" {
 			continue
 		}
 
-		// Extract data from SSE line — handle multiple formats:
-		// "data: {...}"   (standard OpenAI)
-		// "data:{...}"    (no space)
-		// "data: [DONE]"  (end marker)
+		// Extract SSE data
 		var data string
 		if strings.HasPrefix(line, "data: ") {
 			data = strings.TrimPrefix(line, "data: ")
+			isSSE = true
 		} else if strings.HasPrefix(line, "data:") {
 			data = strings.TrimPrefix(line, "data:")
+			isSSE = true
 		} else {
-			// Not a data line (could be "event:", "id:", "retry:", etc.)
 			continue
 		}
 
 		data = strings.TrimSpace(data)
-
-		// End of stream
-		if data == "[DONE]" {
-			log.Printf("[openai] SSE received [DONE] after %d chunks", chunkCount)
-			break
-		}
-
-		// Skip empty data
-		if data == "" {
+		if data == "" || data == "[DONE]" {
+			if data == "[DONE]" {
+				log.Printf("[openai] stream [DONE]: %d reasoning, %d content chunks", reasoningChunks, chunkCount)
+			}
 			continue
 		}
 
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			// Log but continue — some providers send non-JSON lines
-			if lineCount <= 10 {
-				log.Printf("[openai] SSE parse error on line %d: %v", lineCount, err)
-			}
 			continue
 		}
 
 		if chunk.Error != nil {
-			return "", fmt.Errorf("openai stream error: %s", chunk.Error.Message)
+			return "", fmt.Errorf("stream error: %s", chunk.Error.Message)
 		}
 
 		if len(chunk.Choices) > 0 {
 			delta := chunk.Choices[0].Delta
 
-			// reasoning_content = model's chain-of-thought (show as progress, don't include in output)
+			// reasoning_content = chain-of-thought (show progress, don't include in output)
 			if delta.ReasoningContent != "" {
 				reasoningChunks++
 				if o.OnChunk != nil {
@@ -251,11 +240,10 @@ func (o *OpenAIProvider) parseSSE(body string) (string, error) {
 				}
 			}
 
-			// content = the actual output (this is what we want)
+			// content = actual output
 			if delta.Content != "" {
 				accumulated.WriteString(delta.Content)
 				chunkCount++
-
 				if o.OnChunk != nil {
 					o.OnChunk(fmt.Sprintf("Generating... (%d chars)", accumulated.Len()))
 				}
@@ -263,36 +251,47 @@ func (o *OpenAIProvider) parseSSE(body string) (string, error) {
 		}
 	}
 
-	text := accumulated.String()
-	log.Printf("[openai] streaming complete: %d lines, %d reasoning chunks, %d content chunks, %d chars output",
-		lineCount, reasoningChunks, chunkCount, len(text))
-
-	if text == "" && lineCount > 0 {
-		if reasoningChunks > 0 {
-			log.Printf("[openai] WARNING: model sent %d reasoning chunks but no content — it may have hit the token limit during thinking", reasoningChunks)
-		} else {
-			log.Printf("[openai] WARNING: read %d lines but found no content", lineCount)
-		}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("read stream: %w", err)
 	}
 
-	return text, nil
+	text := accumulated.String()
+	log.Printf("[openai] stream done: %d lines, %d reasoning, %d content, %d chars",
+		lineCount, reasoningChunks, chunkCount, len(text))
+
+	// If we got content from SSE, return it
+	if text != "" {
+		return text, nil
+	}
+
+	// If SSE had reasoning but no content, the model may have hit token limit
+	if isSSE && reasoningChunks > 0 && chunkCount == 0 {
+		return "", fmt.Errorf("model spent all tokens on reasoning (%d chunks) without generating output — try a simpler prompt or increase max_tokens", reasoningChunks)
+	}
+
+	// Fallback: try parsing the entire captured body as JSON
+	if !isSSE {
+		return o.parseJSONResponse([]byte(fallbackBuf.String()))
+	}
+
+	return "", fmt.Errorf("stream returned empty content")
 }
 
-// parseNonStreaming handles a regular JSON response.
-func (o *OpenAIProvider) parseNonStreaming(respBody []byte) (*manifest.Manifest, error) {
-	log.Printf("[openai] parsing as non-streaming JSON: %d bytes", len(respBody))
+// parseJSONResponse handles a non-streaming JSON response.
+func (o *OpenAIProvider) parseJSONResponse(respBody []byte) (string, error) {
+	log.Printf("[openai] parsing as JSON: %d bytes", len(respBody))
 
 	var oaiResp openaiResponse
 	if err := json.Unmarshal(respBody, &oaiResp); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+		return "", fmt.Errorf("parse JSON response: %w", err)
 	}
 
 	if oaiResp.Error != nil {
-		return nil, fmt.Errorf("openai error: %s", oaiResp.Error.Message)
+		return "", fmt.Errorf("API error: %s", oaiResp.Error.Message)
 	}
 
 	if len(oaiResp.Choices) == 0 {
-		return nil, fmt.Errorf("openai returned no choices")
+		return "", fmt.Errorf("no choices in response")
 	}
 
 	text := oaiResp.Choices[0].Message.Content
@@ -300,19 +299,10 @@ func (o *OpenAIProvider) parseNonStreaming(respBody []byte) (*manifest.Manifest,
 		text = oaiResp.Choices[0].Message.ReasoningContent
 	}
 	if text == "" {
-		var rawMap map[string]any
-		json.Unmarshal(respBody, &rawMap)
-		text = findContentInRaw(rawMap)
-	}
-	if text == "" {
-		preview := string(respBody)
-		if len(preview) > 300 {
-			preview = preview[:300] + "..."
-		}
-		return nil, fmt.Errorf("openai returned empty content. Raw: %s", preview)
+		return "", fmt.Errorf("empty content in response")
 	}
 
-	return ParseManifestResponse(text)
+	return text, nil
 }
 
 // findContentInRaw walks a raw JSON map looking for any string content field.
