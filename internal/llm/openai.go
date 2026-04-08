@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/vibeserve/vibeserve/internal/manifest"
 )
@@ -41,6 +42,11 @@ func WithOpenAIMaxTokens(n int) OpenAIOption {
 //   - "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 //   - "https://api.x.ai/v1/chat/completions"
 func NewOpenAIProvider(apiKey, model, baseURL string, opts ...OpenAIOption) *OpenAIProvider {
+	// Auto-append /chat/completions if not present
+	if !strings.HasSuffix(baseURL, "/chat/completions") {
+		baseURL = strings.TrimRight(baseURL, "/") + "/chat/completions"
+	}
+
 	p := &OpenAIProvider{
 		apiKey:    apiKey,
 		model:     model,

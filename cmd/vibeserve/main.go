@@ -215,11 +215,11 @@ func runSetup(configPath string) (*config.Config, error) {
 		cfg.Provider = "openai"
 
 		fmt.Println()
-		fmt.Println("  Common endpoints:")
-		fmt.Println("    z.ai:    https://open.bigmodel.cn/api/paas/v4/chat/completions")
-		fmt.Println("    OpenAI:  https://api.openai.com/v1/chat/completions")
-		fmt.Println("    x.ai:    https://api.x.ai/v1/chat/completions")
-		fmt.Println("    Groq:    https://api.groq.com/openai/v1/chat/completions")
+		fmt.Println("  Common endpoints (/chat/completions is auto-appended):")
+		fmt.Println("    z.ai:    https://open.bigmodel.cn/api/paas/v4")
+		fmt.Println("    OpenAI:  https://api.openai.com/v1")
+		fmt.Println("    x.ai:    https://api.x.ai/v1")
+		fmt.Println("    Groq:    https://api.groq.com/openai/v1")
 		fmt.Println()
 
 		baseURL := prompt("  API endpoint URL: ")
