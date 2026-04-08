@@ -17,5 +17,24 @@ type DataStore interface {
 	Close() error
 }
 
+// RouteTrie provides route registration and removal operations.
+// This interface is satisfied by *router.Trie but avoids an import cycle
+// since router/handler.go imports runtime, which imports engine.
+type RouteTrie interface {
+	Insert(method, path, script string)
+	Remove(method, path string)
+}
+
+// SchemaStore provides the schema migration and seeding operations used by the Engine.
+// This interface is satisfied by *store.Store but avoids an import cycle
+// since store.go imports engine for the DataStore interface compile check.
+type SchemaStore interface {
+	ApplySchemas(schemas []manifest.Schema) error
+	AddColumn(table string, col manifest.Column) error
+	Seed(table string, rows []map[string]any) error
+	DSN() string
+	Close() error
+}
+
 // Note: ScriptEvaluator interface deferred to Phase 2.
 // In Phase 1, the handler uses *runtime.Runtime directly.
