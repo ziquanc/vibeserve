@@ -320,3 +320,78 @@ func (s *Store) convertForWrite(table, col string, val any) any {
 	}
 	return val
 }
+
+// TableInfo describes a database table and its row count.
+type TableInfo struct {
+	Name     string       `json:"name"`
+	Columns  []ColumnInfo `json:"columns"`
+	RowCount int          `json:"row_count"`
+}
+
+// ColumnInfo describes a single column in a table.
+type ColumnInfo struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	NotNull bool   `json:"not_null"`
+	PK      bool   `json:"pk"`
+}
+
+// Tables returns metadata for all user-created tables (excludes sqlite_ internals).
+func (s *Store) Tables() ([]TableInfo, error) {
+	// First, collect all table names (close the cursor before running nested queries).
+	rows, err := s.db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list tables: %w", err)
+	}
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan table name: %w", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close table list rows: %w", err)
+	}
+
+	// Now query columns and row counts for each table.
+	var tables []TableInfo
+	for _, name := range names {
+		ti := TableInfo{Name: name}
+
+		// Get column info via PRAGMA
+		pragmaRows, err := s.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", name))
+		if err != nil {
+			return nil, fmt.Errorf("pragma table_info(%s): %w", name, err)
+		}
+		for pragmaRows.Next() {
+			var cid int
+			var colName, colType string
+			var notNull, pk int
+			var dfltValue sql.NullString
+			if err := pragmaRows.Scan(&cid, &colName, &colType, &notNull, &dfltValue, &pk); err != nil {
+				pragmaRows.Close()
+				return nil, fmt.Errorf("scan column info: %w", err)
+			}
+			ti.Columns = append(ti.Columns, ColumnInfo{
+				Name:    colName,
+				Type:    colType,
+				NotNull: notNull == 1,
+				PK:      pk == 1,
+			})
+		}
+		pragmaRows.Close()
+
+		// Get row count
+		count, err := s.Count(name)
+		if err != nil {
+			count = 0
+		}
+		ti.RowCount = count
+
+		tables = append(tables, ti)
+	}
+	return tables, nil
+}
