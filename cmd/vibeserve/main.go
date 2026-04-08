@@ -322,8 +322,11 @@ func runDev(configPath, manifestPath, host string, port int) error {
 			return fmt.Errorf("apply schemas: %w", err)
 		}
 		for _, seed := range m.Seeds {
-			if err := s.Seed(seed.Table, seed.Rows); err != nil {
-				return fmt.Errorf("seed %s: %w", seed.Table, err)
+			count, _ := s.Count(seed.Table)
+			if count == 0 {
+				if err := s.Seed(seed.Table, seed.Rows); err != nil {
+					return fmt.Errorf("seed %s: %w", seed.Table, err)
+				}
 			}
 		}
 	}
@@ -416,10 +419,13 @@ func runUp(manifestPath, host string, port int) error {
 	}
 
 	for _, seed := range m.Seeds {
-		if err := s.Seed(seed.Table, seed.Rows); err != nil {
-			return fmt.Errorf("seed %s: %w", seed.Table, err)
+		count, _ := s.Count(seed.Table)
+		if count == 0 {
+			if err := s.Seed(seed.Table, seed.Rows); err != nil {
+				return fmt.Errorf("seed %s: %w", seed.Table, err)
+			}
+			log.Printf("Seeded %s: %d rows", seed.Table, len(seed.Rows))
 		}
-		log.Printf("Seeded %s: %d rows", seed.Table, len(seed.Rows))
 	}
 
 	trie := router.NewTrie()
