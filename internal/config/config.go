@@ -16,6 +16,7 @@ type Config struct {
 	Model      string       `yaml:"model"`
 	OllamaHost string       `yaml:"ollama_host,omitempty"`
 	BaseURL    string       `yaml:"base_url,omitempty"` // OpenAI-compatible endpoint URL
+	MaxTokens  int          `yaml:"max_tokens,omitempty"`
 	Server     ServerConfig `yaml:"server"`
 }
 

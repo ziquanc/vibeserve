@@ -165,7 +165,11 @@ func createProvider(cfg *config.Config) (llm.Provider, error) {
 		if cfg.BaseURL == "" {
 			return nil, fmt.Errorf("provider 'openai' requires base_url in config")
 		}
-		return llm.NewOpenAIProvider(apiKey, cfg.Model, cfg.BaseURL), nil
+		var opts []llm.OpenAIOption
+		if cfg.MaxTokens > 0 {
+			opts = append(opts, llm.WithOpenAIMaxTokens(cfg.MaxTokens))
+		}
+		return llm.NewOpenAIProvider(apiKey, cfg.Model, cfg.BaseURL, opts...), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q (supported: claude, openai, ollama)", cfg.Provider)
 	}
