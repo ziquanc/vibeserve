@@ -183,14 +183,14 @@ func runSetup(configPath string) (*config.Config, error) {
 	switch choice {
 	case "1", "":
 		cfg.Provider = "claude"
-		cfg.APIKeyEnv = "ANTHROPIC_API_KEY"
+		cfg.APIKeyEnv = ""
 		cfg.Model = "claude-sonnet-4-6-20250514"
 
 		key := prompt("  Anthropic API key: ")
 		if key == "" {
 			return nil, fmt.Errorf("API key is required")
 		}
-		os.Setenv("ANTHROPIC_API_KEY", key)
+		cfg.APIKeyVal = key
 
 		model := prompt("  Model [claude-sonnet-4-6-20250514]: ")
 		if model != "" {
@@ -218,8 +218,8 @@ func runSetup(configPath string) (*config.Config, error) {
 		if key == "" {
 			return nil, fmt.Errorf("API key is required")
 		}
-		cfg.APIKeyEnv = "VIBESERVE_API_KEY"
-		os.Setenv("VIBESERVE_API_KEY", key)
+		cfg.APIKeyEnv = ""
+		cfg.APIKeyVal = key
 
 		model := prompt("  Model name: ")
 		if model == "" {

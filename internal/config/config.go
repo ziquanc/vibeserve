@@ -11,10 +11,11 @@ import (
 // Config represents the .vibe/config.yaml file.
 type Config struct {
 	Provider   string       `yaml:"provider"`
-	APIKeyEnv  string       `yaml:"api_key_env"`
+	APIKeyEnv  string       `yaml:"api_key_env,omitempty"`
+	APIKeyVal  string       `yaml:"api_key,omitempty"` // direct key storage (used if api_key_env is empty or env var unset)
 	Model      string       `yaml:"model"`
-	OllamaHost string       `yaml:"ollama_host"`
-	BaseURL    string       `yaml:"base_url"` // OpenAI-compatible endpoint URL
+	OllamaHost string       `yaml:"ollama_host,omitempty"`
+	BaseURL    string       `yaml:"base_url,omitempty"` // OpenAI-compatible endpoint URL
 	Server     ServerConfig `yaml:"server"`
 }
 
@@ -71,13 +72,15 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// APIKey reads the API key from the environment variable specified in APIKeyEnv.
-// Returns empty string if the env var is not set.
+// APIKey reads the API key. Checks the environment variable first (APIKeyEnv),
+// falls back to the direct value (APIKeyVal) stored in config.
 func (c *Config) APIKey() string {
-	if c.APIKeyEnv == "" {
-		return ""
+	if c.APIKeyEnv != "" {
+		if v := os.Getenv(c.APIKeyEnv); v != "" {
+			return v
+		}
 	}
-	return os.Getenv(c.APIKeyEnv)
+	return c.APIKeyVal
 }
 
 // Validate checks that the config has all required fields.
