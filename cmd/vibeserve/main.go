@@ -22,6 +22,7 @@ import (
 	"github.com/vibeserve/vibeserve/internal/snapshot"
 	"github.com/vibeserve/vibeserve/internal/store"
 	"github.com/vibeserve/vibeserve/internal/tui"
+	"github.com/vibeserve/vibeserve/internal/web"
 )
 
 var version = "0.1.0"
@@ -361,8 +362,7 @@ func runDev(configPath, manifestPath, host string, port int) error {
 	}
 
 	rt := runtime.New(s, bus)
-	handler := router.NewHandler(trie, scripts, rt, cfg.Server.CORS)
-	srv := router.NewServer(cfg.Server.Host, cfg.Server.Port, handler)
+	apiHandler := router.NewHandler(trie, scripts, rt, cfg.Server.CORS)
 
 	eng := engine.NewEngine(engine.EngineConfig{
 		Bus:      bus,
@@ -377,12 +377,18 @@ func runDev(configPath, manifestPath, host string, port int) error {
 		},
 	})
 
+	consoleHandler := web.NewConsole(eng, s)
+	wsHub := web.NewWSHub(bus)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub)
+	srv := router.NewServer(cfg.Server.Host, cfg.Server.Port, mux)
+
 	// Start HTTP server in background
 	serverErrCh := make(chan error, 1)
 	go func() {
 		serverErrCh <- srv.Start()
 	}()
 	log.Printf("Server running at http://%s:%d", cfg.Server.Host, cfg.Server.Port)
+	log.Printf("Console at http://%s:%d/_console/", cfg.Server.Host, cfg.Server.Port)
 
 	// Create TUI
 	serverURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -464,11 +470,29 @@ func runUp(manifestPath, host string, port int) error {
 	}
 
 	rt := runtime.New(s, bus)
-	handler := router.NewHandler(trie, scripts, rt, true)
-	srv := router.NewServer(host, port, handler)
+	apiHandler := router.NewHandler(trie, scripts, rt, true)
+
+	eng := engine.NewEngine(engine.EngineConfig{
+		Bus:      bus,
+		Store:    s,
+		Trie:     trie,
+		Scripts:  scripts,
+		Manifest: m,
+		VibeDir:  ".vibe",
+		StoreOpener: func(dsn string) (engine.SchemaStore, error) {
+			return store.New(dsn)
+		},
+	})
+
+	consoleHandler := web.NewConsole(eng, s)
+	wsHub := web.NewWSHub(bus)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub)
+	srv := router.NewServer(host, port, mux)
 
 	manifestData, _ := json.MarshalIndent(m, "", "  ")
 	os.WriteFile(".vibe/manifest.json", manifestData, 0o644)
+
+	log.Printf("Console at http://%s:%d/_console/", host, port)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
