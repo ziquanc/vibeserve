@@ -99,7 +99,7 @@ func TestLogModuleHasExpectedKeys(t *testing.T) {
 	_, bus, _, _ := newTestDeps(t)
 	mod := newLogModule(bus).(*tengo.ImmutableMap)
 
-	requiredKeys := []string{"info", "warn", "error"}
+	requiredKeys := []string{"info", "warn", "err"}
 	for _, k := range requiredKeys {
 		if _, ok := mod.Value[k]; !ok {
 			t.Errorf("log module missing key %q", k)

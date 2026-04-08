@@ -669,6 +669,7 @@ func newLogModule(bus *engine.Bus) tengo.Object {
 	return &tengo.ImmutableMap{Value: map[string]tengo.Object{
 		"info":  &tengo.UserFunction{Name: "info", Value: emitLog("info")},
 		"warn":  &tengo.UserFunction{Name: "warn", Value: emitLog("warn")},
-		"error": &tengo.UserFunction{Name: "error", Value: emitLog("error")},
+		// "error" is a Tengo keyword; use "err" in scripts: log.err(msg)
+		"err": &tengo.UserFunction{Name: "err", Value: emitLog("error")},
 	}}
 }
