@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -147,44 +146,92 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 		return nil, fmt.Errorf("openai API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	// Check if response is SSE (streaming) or JSON (non-streaming fallback)
 	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(contentType, "text/event-stream") {
-		text, err := o.readSSE(resp.Body)
+	log.Printf("[openai] response Content-Type: %s", contentType)
+
+	// Determine if response is SSE streaming or regular JSON.
+	// We sent stream:true, so most providers will respond with SSE.
+	// Read the body once and decide based on content.
+	bodyBytes, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+
+	bodyStr := string(bodyBytes)
+	log.Printf("[openai] response: %d bytes, Content-Type: %s", len(bodyBytes), contentType)
+
+	// Detect SSE format: lines starting with "data:"
+	if strings.Contains(contentType, "event-stream") || strings.Contains(bodyStr, "\ndata:") || strings.HasPrefix(bodyStr, "data:") {
+		text, err := o.parseSSE(bodyStr)
 		if err != nil {
 			return nil, err
 		}
-		return ParseManifestResponse(text)
+		if text != "" {
+			return ParseManifestResponse(text)
+		}
+		log.Printf("[openai] SSE parse returned empty, trying JSON parse")
 	}
 
-	// Fallback: non-streaming JSON response
-	return o.readNonStreaming(resp.Body)
+	// Non-streaming: parse as regular JSON
+	return o.parseNonStreaming(bodyBytes)
 }
 
-// readSSE reads Server-Sent Events and accumulates the content.
-func (o *OpenAIProvider) readSSE(body io.Reader) (string, error) {
-	scanner := bufio.NewScanner(body)
+// parseSSE parses Server-Sent Events from the response body string.
+func (o *OpenAIProvider) parseSSE(body string) (string, error) {
 	var accumulated strings.Builder
 	chunkCount := 0
+	lineCount := 0
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for _, line := range strings.Split(body, "\n") {
+		lineCount++
 
-		// SSE lines start with "data: "
-		if !strings.HasPrefix(line, "data: ") {
+		// Log first few lines for debugging
+		if lineCount <= 5 {
+			preview := line
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			log.Printf("[openai] SSE line %d: %q", lineCount, preview)
+		}
+
+		// Skip empty lines (SSE event separators)
+		if line == "" {
 			continue
 		}
 
-		data := strings.TrimPrefix(line, "data: ")
+		// Extract data from SSE line — handle multiple formats:
+		// "data: {...}"   (standard OpenAI)
+		// "data:{...}"    (no space)
+		// "data: [DONE]"  (end marker)
+		var data string
+		if strings.HasPrefix(line, "data: ") {
+			data = strings.TrimPrefix(line, "data: ")
+		} else if strings.HasPrefix(line, "data:") {
+			data = strings.TrimPrefix(line, "data:")
+		} else {
+			// Not a data line (could be "event:", "id:", "retry:", etc.)
+			continue
+		}
+
+		data = strings.TrimSpace(data)
 
 		// End of stream
 		if data == "[DONE]" {
+			log.Printf("[openai] SSE received [DONE] after %d chunks", chunkCount)
 			break
+		}
+
+		// Skip empty data
+		if data == "" {
+			continue
 		}
 
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			log.Printf("[openai] failed to parse SSE chunk: %v (data: %s)", err, data)
+			// Log but continue — some providers send non-JSON lines
+			if lineCount <= 10 {
+				log.Printf("[openai] SSE parse error on line %d: %v", lineCount, err)
+			}
 			continue
 		}
 
@@ -193,12 +240,15 @@ func (o *OpenAIProvider) readSSE(body io.Reader) (string, error) {
 		}
 
 		if len(chunk.Choices) > 0 {
-			delta := chunk.Choices[0].Delta.Content
-			if delta != "" {
-				accumulated.WriteString(delta)
+			// Try both delta.content and delta.reasoning_content
+			content := chunk.Choices[0].Delta.Content
+			if content == "" {
+				content = chunk.Choices[0].Delta.ReasoningContent
+			}
+			if content != "" {
+				accumulated.WriteString(content)
 				chunkCount++
 
-				// Notify listener of progress
 				if o.OnChunk != nil {
 					o.OnChunk(accumulated.String())
 				}
@@ -206,28 +256,19 @@ func (o *OpenAIProvider) readSSE(body io.Reader) (string, error) {
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("read SSE stream: %w", err)
-	}
-
 	text := accumulated.String()
-	log.Printf("[openai] streaming complete: %d chunks, %d chars", chunkCount, len(text))
+	log.Printf("[openai] streaming complete: %d lines read, %d chunks with content, %d chars total", lineCount, chunkCount, len(text))
 
-	if text == "" {
-		return "", fmt.Errorf("openai stream returned empty content")
+	if text == "" && lineCount > 0 {
+		log.Printf("[openai] WARNING: read %d lines but found no content — SSE format may be unexpected", lineCount)
 	}
 
 	return text, nil
 }
 
-// readNonStreaming handles a regular JSON response (fallback when server doesn't stream).
-func (o *OpenAIProvider) readNonStreaming(body io.Reader) (*manifest.Manifest, error) {
-	respBody, err := io.ReadAll(body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	log.Printf("[openai] non-streaming response: %d bytes", len(respBody))
+// parseNonStreaming handles a regular JSON response.
+func (o *OpenAIProvider) parseNonStreaming(respBody []byte) (*manifest.Manifest, error) {
+	log.Printf("[openai] parsing as non-streaming JSON: %d bytes", len(respBody))
 
 	var oaiResp openaiResponse
 	if err := json.Unmarshal(respBody, &oaiResp); err != nil {
