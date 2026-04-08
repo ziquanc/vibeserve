@@ -77,7 +77,7 @@ func BuildCreateTableSQL(schema manifest.Schema) string {
 				parts = append(parts, "DEFAULT "+defaultValue(col))
 			}
 			if col.References != "" {
-				parts = append(parts, "REFERENCES "+col.References)
+				parts = append(parts, "REFERENCES "+formatSQLReference(col.References))
 			}
 		}
 
@@ -112,4 +112,18 @@ func BuildAddColumnSQL(table string, col manifest.Column) string {
 		parts = append(parts, "REFERENCES "+col.References)
 	}
 	return fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", table, strings.Join(parts, " "))
+}
+
+// formatSQLReference normalizes a reference to SQL format: table(column).
+// Accepts "table.column" or "table(column)".
+func formatSQLReference(ref string) string {
+	// Already in SQL format
+	if strings.Contains(ref, "(") {
+		return ref
+	}
+	// Convert "table.column" to "table(column)"
+	if idx := strings.IndexByte(ref, '.'); idx > 0 {
+		return ref[:idx] + "(" + ref[idx+1:] + ")"
+	}
+	return ref
 }

@@ -113,11 +113,10 @@ func validateReferential(m *Manifest) error {
 			if c.References == "" {
 				continue
 			}
-			parts := strings.SplitN(c.References, ".", 2)
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid reference format %q (expected table.column)", c.References)
+			refTable, refCol := parseReference(c.References)
+			if refTable == "" || refCol == "" {
+				return fmt.Errorf("invalid reference format %q (expected table.column or table(column))", c.References)
 			}
-			refTable, refCol := parts[0], parts[1]
 			cols, ok := tables[refTable]
 			if !ok {
 				return fmt.Errorf("%s.%s references nonexistent table %q", s.Table, c.Name, refTable)
@@ -129,6 +128,25 @@ func validateReferential(m *Manifest) error {
 	}
 
 	return nil
+}
+
+// parseReference extracts table and column from a reference string.
+// Accepts both "table.column" and "table(column)" formats.
+func parseReference(ref string) (table, column string) {
+	// Try "table(column)" format first
+	if idx := strings.IndexByte(ref, '('); idx > 0 {
+		table = ref[:idx]
+		rest := ref[idx+1:]
+		if end := strings.IndexByte(rest, ')'); end > 0 {
+			column = rest[:end]
+			return table, column
+		}
+	}
+	// Try "table.column" format
+	if parts := strings.SplitN(ref, ".", 2); len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", ""
 }
 
 // stdlibNames are the variable names injected into every Tengo script.

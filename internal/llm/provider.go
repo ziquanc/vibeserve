@@ -53,7 +53,7 @@ A manifest is a JSON object with these fields:
         {"name": "score", "type": "REAL"},
         {"name": "created_at", "type": "DATETIME", "default": "NOW"},
         {"name": "birth_date", "type": "DATE"},
-        {"name": "category_id", "type": "INTEGER", "references": "categories(id)"}
+        {"name": "category_id", "type": "INTEGER", "references": "categories.id"}
       ]
     }
   ],
