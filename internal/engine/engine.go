@@ -89,12 +89,100 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 	// 1. Emit UserPromptReceived
 	e.bus.Publish(Event{Type: EventUserPromptReceived, Data: prompt})
 
-	// 2. Call LLM
+	// 2. Planning phase — ask LLM to break work into steps
+	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Planning..."})
+
+	planPrompt := llm.BuildPlanPrompt(prompt)
+	planManifest, planErr := e.provider.Generate(ctx, e.manifest, planPrompt, nil)
+
+	var steps []string
+	if planErr != nil {
+		if chatErr, ok := planErr.(*llm.ChatOnlyError); ok {
+			// Try to parse as plan (JSON array)
+			parsed, parseErr := llm.ExtractPlan(chatErr.Text)
+			if parseErr == nil && len(parsed) > 0 {
+				steps = parsed
+			} else {
+				// Not a plan — might be a conversational response to a question
+				e.history = append(e.history, llm.Message{Role: "user", Content: prompt})
+				e.history = append(e.history, llm.Message{Role: "assistant", Content: chatErr.Text})
+				result.ChatResponse = chatErr.Text
+				return result, nil
+			}
+		} else {
+			return nil, fmt.Errorf("planning failed: %w", planErr)
+		}
+	}
+
+	// If LLM returned a manifest directly (simple request), apply it directly
+	if planManifest != nil && len(steps) == 0 {
+		log.Printf("[engine] LLM returned manifest directly (no planning needed)")
+		return e.applyManifest(ctx, prompt, planManifest, result)
+	}
+
+	// If no steps parsed, fall back to single-step direct generation
+	if len(steps) == 0 {
+		log.Printf("[engine] no plan created, falling back to direct generation")
+		return e.directApply(ctx, prompt, result)
+	}
+
+	// 3. Execute plan step by step
+	log.Printf("[engine] plan created: %d steps", len(steps))
+	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
+
+	for i, step := range steps {
+		stepNum := i + 1
+		log.Printf("[engine] executing step %d/%d: %s", stepNum, len(steps), step)
+		e.bus.Publish(Event{Type: EventStepStarted, Data: StepInfo{
+			Index: stepNum, Total: len(steps), Description: step,
+		}})
+
+		// Ask LLM to implement this step
+		stepPrompt := fmt.Sprintf("Implement step %d of %d: %s\n\nIMPORTANT: Output ONLY the complete updated manifest JSON. Include ALL existing tables, routes, scripts, and seeds plus the new additions for this step.", stepNum, len(steps), step)
+
+		newManifest, err := e.provider.Generate(ctx, e.manifest, stepPrompt, e.history)
+		if err != nil {
+			if chatErr, ok := err.(*llm.ChatOnlyError); ok {
+				log.Printf("[engine] step %d returned text instead of JSON, skipping: %s", stepNum, chatErr.Text[:min(100, len(chatErr.Text))])
+				continue
+			}
+			return nil, fmt.Errorf("step %d/%d failed: %w", stepNum, len(steps), err)
+		}
+
+		// Apply this step's manifest
+		stepResult, err := e.applyManifest(ctx, step, newManifest, &ApplyResult{})
+		if err != nil {
+			log.Printf("[engine] step %d failed to apply: %v", stepNum, err)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Step %d failed: %v", stepNum, err))
+			continue
+		}
+
+		// Merge step results
+		result.Changes = append(result.Changes, stepResult.Changes...)
+		result.Warnings = append(result.Warnings, stepResult.Warnings...)
+		result.Manifest = stepResult.Manifest
+
+		// Build step summary
+		var changeSummaries []string
+		for _, c := range stepResult.Changes {
+			changeSummaries = append(changeSummaries, c.Detail)
+		}
+
+		e.bus.Publish(Event{Type: EventStepCompleted, Data: StepInfo{
+			Index: stepNum, Total: len(steps), Description: step,
+			Changes: changeSummaries,
+		}})
+	}
+
+	return result, nil
+}
+
+// directApply does a single LLM call without planning (fallback).
+func (e *Engine) directApply(ctx context.Context, prompt string, result *ApplyResult) (*ApplyResult, error) {
 	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: prompt})
 
 	newManifest, err := e.provider.Generate(ctx, e.manifest, prompt, e.history)
 	if err != nil {
-		// If the LLM responded with conversational text (no JSON), return it as a chat message
 		if chatErr, ok := err.(*llm.ChatOnlyError); ok {
 			e.history = append(e.history, llm.Message{Role: "user", Content: prompt})
 			e.history = append(e.history, llm.Message{Role: "assistant", Content: chatErr.Text})
@@ -104,6 +192,11 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
+	return e.applyManifest(ctx, prompt, newManifest, result)
+}
+
+// applyManifest validates, diffs, and applies a new manifest.
+func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *manifest.Manifest, result *ApplyResult) (*ApplyResult, error) {
 	e.bus.Publish(Event{Type: EventLLMRequestCompleted, Data: newManifest})
 
 	// 2.5. Auto-repair common LLM omissions

@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
@@ -107,6 +109,35 @@ func NewBridge(program *tea.Program, bus *engine.Bus) *Bridge {
 			program.Send(LogMsg{
 				Level:   data["level"],
 				Message: data["message"],
+			})
+		}
+	})
+
+	bus.Subscribe(engine.EventPlanCreated, func(e engine.Event) {
+		if info, ok := e.Data.(engine.PlanInfo); ok {
+			program.Send(PlanCreatedMsg{Steps: info.Steps})
+		}
+	})
+
+	bus.Subscribe(engine.EventStepStarted, func(e engine.Event) {
+		if info, ok := e.Data.(engine.StepInfo); ok {
+			program.Send(StepProgressMsg{
+				Index: info.Index, Total: info.Total,
+				Description: info.Description, Done: false,
+			})
+		}
+	})
+
+	bus.Subscribe(engine.EventStepCompleted, func(e engine.Event) {
+		if info, ok := e.Data.(engine.StepInfo); ok {
+			summary := strings.Join(info.Changes, ", ")
+			if summary == "" {
+				summary = "no changes"
+			}
+			program.Send(StepProgressMsg{
+				Index: info.Index, Total: info.Total,
+				Description: info.Description, Done: true,
+				Summary: summary,
 			})
 		}
 	})

@@ -247,6 +247,43 @@ if status == undefined {
 	return b.String()
 }
 
+// BuildPlanPrompt creates a prompt that asks the LLM to break a request into steps.
+func BuildPlanPrompt(userRequest string) string {
+	return fmt.Sprintf(`The user wants: "%s"
+
+Break this into 2-5 small implementation steps. Each step should add ONE thing (a table, a few related routes, seed data, etc.).
+
+Output ONLY a JSON array of step descriptions. Example:
+["Create users table with id, name, email columns", "Create posts table with id, title, body, user_id columns", "Add CRUD routes for users", "Add CRUD routes for posts", "Add seed data for users and posts"]
+
+Rules:
+- Each step should be small enough to implement independently
+- Start with tables/schemas, then routes, then seed data
+- Each step description should be specific and actionable
+- Output ONLY the JSON array, no other text`, userRequest)
+}
+
+// ExtractPlan parses a JSON array of step descriptions from LLM output.
+func ExtractPlan(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+
+	// Find the array
+	start := strings.Index(raw, "[")
+	end := strings.LastIndex(raw, "]")
+	if start == -1 || end == -1 || end <= start {
+		return nil, fmt.Errorf("no JSON array found in plan response")
+	}
+
+	var steps []string
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &steps); err != nil {
+		return nil, fmt.Errorf("parse plan: %w", err)
+	}
+	if len(steps) == 0 {
+		return nil, fmt.Errorf("plan has no steps")
+	}
+	return steps, nil
+}
+
 // ExtractJSON finds and extracts a JSON object from LLM output.
 // Some LLMs wrap JSON in markdown fences or add explanation text.
 // This function attempts to find the outermost {...} in the response.

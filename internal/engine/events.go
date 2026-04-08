@@ -28,7 +28,26 @@ const (
 	EventHTTPRequestReceived      EventType = "HTTP_REQUEST_RECEIVED"
 	EventHTTPResponseSent         EventType = "HTTP_RESPONSE_SENT"
 	EventLogEmitted               EventType = "LOG_EMITTED"
+
+	// Planning events
+	EventPlanCreated  EventType = "PLAN_CREATED"  // Data: PlanInfo
+	EventStepStarted  EventType = "STEP_STARTED"  // Data: StepInfo
+	EventStepCompleted EventType = "STEP_COMPLETED" // Data: StepInfo
 )
+
+// PlanInfo describes the execution plan.
+type PlanInfo struct {
+	Steps []string
+	Total int
+}
+
+// StepInfo describes a single step's progress.
+type StepInfo struct {
+	Index   int
+	Total   int
+	Description string
+	Changes []string // summary of what changed in this step
+}
 
 type Event struct {
 	Type EventType

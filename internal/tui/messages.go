@@ -91,6 +91,20 @@ type StreamingChunkMsg struct {
 	Text string // accumulated text so far
 }
 
+// PlanCreatedMsg is sent when the engine creates an execution plan.
+type PlanCreatedMsg struct {
+	Steps []string
+}
+
+// StepProgressMsg is sent when a plan step starts or completes.
+type StepProgressMsg struct {
+	Index       int
+	Total       int
+	Description string
+	Done        bool
+	Summary     string // what changed (only when Done=true)
+}
+
 // LogMsg carries a log event from the engine.
 type LogMsg struct {
 	Level   string

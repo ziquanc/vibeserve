@@ -155,8 +155,34 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case StreamingChunkMsg:
-		// Update the last system message ("Thinking...") with streaming text
-		m.conversation.UpdateLastSystem("Generating: " + fmt.Sprintf("%d chars received...", len(msg.Text)))
+		// Update the last system message with streaming progress
+		m.conversation.UpdateLastSystem(msg.Text)
+
+	case PlanCreatedMsg:
+		m.conversation.RemoveLastSystem()
+		m.conversation.AddMessage(Message{
+			Role:    RoleSystem,
+			Content: fmt.Sprintf("Plan: %d steps to execute", len(msg.Steps)),
+		})
+		for i, step := range msg.Steps {
+			m.conversation.AddMessage(Message{
+				Role:    RoleSystem,
+				Content: fmt.Sprintf("  %d. %s", i+1, step),
+			})
+		}
+
+	case StepProgressMsg:
+		if !msg.Done {
+			m.conversation.AddMessage(Message{
+				Role:    RoleSystem,
+				Content: fmt.Sprintf("Step %d/%d: %s...", msg.Index, msg.Total, msg.Description),
+			})
+		} else {
+			m.conversation.AddMessage(Message{
+				Role:    RoleAssistant,
+				Content: fmt.Sprintf("Step %d/%d done: %s", msg.Index, msg.Total, msg.Summary),
+			})
+		}
 
 	// Engine bus events
 	case RouteAddedMsg:
