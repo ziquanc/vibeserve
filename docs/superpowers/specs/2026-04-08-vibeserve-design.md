@@ -239,7 +239,7 @@ All Tengo scripts execute in a hermetically sealed sandbox. They can only intera
 
 ### response (HTTP Response)
 - `response.json(data, status?) -> void` — JSON response (default 200)
-- `response.error(status, msg) -> void` — error response
+- `response.fail(status, msg) -> void` — error response (named `fail` because `error` is a Tengo keyword)
 - `response.header(name, value) -> void` — set response header
 - `response.redirect(url) -> void` — 302 redirect
 
@@ -257,7 +257,7 @@ All Tengo scripts execute in a hermetically sealed sandbox. They can only intera
 ### log (Observability)
 - `log.info(msg) -> void` — emits LogEmitted event (info level)
 - `log.warn(msg) -> void` — emits LogEmitted event (warn level)
-- `log.error(msg) -> void` — emits LogEmitted event (error level)
+- `log.err(msg) -> void` — emits LogEmitted event (error level; named `err` because `error` is a Tengo keyword)
 
 **Intentionally excluded:** filesystem access, network calls (`http.get`), subprocess execution (`exec`), external module imports. The sandbox is sealed.
 
