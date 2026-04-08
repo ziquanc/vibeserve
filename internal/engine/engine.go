@@ -333,7 +333,7 @@ func repairManifest(m *manifest.Manifest, previous *manifest.Manifest) {
 	}
 }
 
-// FormatChangeSummary produces a human-readable summary of changes.
+// FormatChangeSummary produces a clear, readable summary of what changed.
 func FormatChangeSummary(result *ApplyResult) string {
 	if result.ChatResponse != "" {
 		return result.ChatResponse
@@ -343,35 +343,101 @@ func FormatChangeSummary(result *ApplyResult) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("Changes applied:\n")
+
+	// Group changes by type for clearer output
+	var tables, columns, routes, scripts, seeds []string
+	var warnings []string
 
 	for _, c := range result.Changes {
 		switch c.Type {
 		case manifest.ChangeAddTable:
-			b.WriteString(fmt.Sprintf("  + Table: %s\n", c.Table))
+			cols := ""
+			if c.Schema != nil {
+				cols = fmt.Sprintf(" (%d columns)", len(c.Schema.Columns))
+			}
+			tables = append(tables, fmt.Sprintf("  + Created table: %s%s", c.Table, cols))
 		case manifest.ChangeAddColumn:
-			b.WriteString(fmt.Sprintf("  + Column: %s.%s (%s)\n", c.Table, c.Column.Name, c.Column.Type))
+			columns = append(columns, fmt.Sprintf("  + Added column: %s.%s (%s)", c.Table, c.Column.Name, c.Column.Type))
 		case manifest.ChangeDropColumn:
-			b.WriteString(fmt.Sprintf("  ~ Warning: %s\n", c.Detail))
+			warnings = append(warnings, fmt.Sprintf("  ! Column %s.%s was removed from manifest (not applied to DB)", c.Table, c.Column.Name))
 		case manifest.ChangeAddRoute:
-			b.WriteString(fmt.Sprintf("  + Route: %s %s\n", c.Route.Method, c.Route.Path))
+			routes = append(routes, fmt.Sprintf("  + Added route: %s %s", c.Route.Method, c.Route.Path))
 		case manifest.ChangeUpdateRoute:
-			b.WriteString(fmt.Sprintf("  ~ Route: %s %s (updated)\n", c.Route.Method, c.Route.Path))
+			routes = append(routes, fmt.Sprintf("  ~ Updated route: %s %s", c.Route.Method, c.Route.Path))
 		case manifest.ChangeRemoveRoute:
-			b.WriteString(fmt.Sprintf("  - Route: %s %s\n", c.Route.Method, c.Route.Path))
+			routes = append(routes, fmt.Sprintf("  - Removed route: %s %s", c.Route.Method, c.Route.Path))
 		case manifest.ChangeAddScript:
-			b.WriteString(fmt.Sprintf("  + Script: %s\n", c.Script.Name))
+			scripts = append(scripts, fmt.Sprintf("  + Added script: %s", c.Script.Name))
 		case manifest.ChangeUpdateScript:
-			b.WriteString(fmt.Sprintf("  ~ Script: %s (updated)\n", c.Script.Name))
+			scripts = append(scripts, fmt.Sprintf("  ~ Updated script: %s", c.Script.Name))
 		case manifest.ChangeRemoveScript:
-			b.WriteString(fmt.Sprintf("  - Script: %s\n", c.Script.Name))
+			scripts = append(scripts, fmt.Sprintf("  - Removed script: %s", c.Script.Name))
 		case manifest.ChangeAddSeed:
-			b.WriteString(fmt.Sprintf("  + Seed: %s\n", c.Table))
+			count := 0
+			if c.Seed != nil {
+				count = len(c.Seed.Rows)
+			}
+			seeds = append(seeds, fmt.Sprintf("  + Seeded table: %s (%d rows)", c.Table, count))
 		}
+	}
+
+	// Print grouped sections
+	if len(tables) > 0 || len(columns) > 0 {
+		b.WriteString("Schema:\n")
+		for _, s := range tables {
+			b.WriteString(s + "\n")
+		}
+		for _, s := range columns {
+			b.WriteString(s + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(routes) > 0 {
+		b.WriteString("Routes:\n")
+		for _, s := range routes {
+			b.WriteString(s + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(scripts) > 0 {
+		b.WriteString("Scripts:\n")
+		for _, s := range scripts {
+			b.WriteString(s + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(seeds) > 0 {
+		b.WriteString("Data:\n")
+		for _, s := range seeds {
+			b.WriteString(s + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(warnings) > 0 {
+		b.WriteString("Warnings:\n")
+		for _, s := range warnings {
+			b.WriteString(s + "\n")
+		}
+		b.WriteString("\n")
 	}
 
 	for _, w := range result.Warnings {
 		b.WriteString(fmt.Sprintf("  ! %s\n", w))
+	}
+
+	// Show a test hint
+	if len(routes) > 0 && result.Manifest != nil {
+		b.WriteString("Try it:\n")
+		for _, r := range result.Manifest.Routes {
+			if r.Method == "GET" {
+				b.WriteString(fmt.Sprintf("  curl http://localhost:8080%s\n", r.Path))
+				break
+			}
+		}
 	}
 
 	return b.String()

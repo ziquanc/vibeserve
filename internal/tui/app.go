@@ -89,17 +89,8 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			contentHeight = 1
 		}
 
-		collapsed := m.width < 100
-
-		if collapsed {
-			m.conversation.SetSize(m.width, contentHeight)
-			m.dashboard.SetSize(0, 0)
-		} else {
-			leftWidth := m.width * 60 / 100
-			rightWidth := m.width - leftWidth
-			m.conversation.SetSize(leftWidth, contentHeight)
-			m.dashboard.SetSize(rightWidth, contentHeight)
-		}
+		// Full-width chat
+		m.conversation.SetSize(m.width, contentHeight)
 
 		return m, nil
 
@@ -110,39 +101,13 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			return m, tea.Quit
 
-		case "esc":
-			// Esc clears input if conversation focused, otherwise switches to conversation
-			if m.focus != PaneConversation {
-				m.focus = PaneConversation
-				m.conversation.focused = true
-				m.dashboard.focused = false
-			}
-			return m, nil
-
-		case "tab":
-			if m.focus == PaneConversation {
-				m.focus = PaneDashboard
-			} else {
-				m.focus = PaneConversation
-			}
-			m.conversation.focused = (m.focus == PaneConversation)
-			m.dashboard.focused = (m.focus == PaneDashboard)
-			return m, nil
 		}
 
-		// Delegate key to focused pane
-		if m.focus == PaneConversation {
-			var cmd tea.Cmd
-			m.conversation, cmd = m.conversation.Update(msg)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		} else {
-			var cmd tea.Cmd
-			m.dashboard, cmd = m.dashboard.Update(msg)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+		// All keys go to conversation
+		var cmd tea.Cmd
+		m.conversation, cmd = m.conversation.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case SubmitPromptMsg:
@@ -231,23 +196,11 @@ func (m RootModel) View() tea.View {
 		return v
 	}
 
-	collapsed := m.width < 100
-
 	header := m.header.View()
 	status := m.statusBar.View()
 
-	var content string
-	if collapsed {
-		content = m.conversation.View()
-	} else {
-		content = RenderSplitPane(
-			m.conversation.View(),
-			m.dashboard.View(),
-			m.width,
-			m.height-headerHeight-statusBarHeight,
-			m.focus,
-		)
-	}
+	// Full-width chat — like Claude Code
+	content := m.conversation.View()
 
 	v := tea.NewView(header + "\n" + content + "\n" + status)
 	v.AltScreen = true

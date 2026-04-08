@@ -60,8 +60,7 @@ func (m StatusBarModel) View() string {
 	}{
 		{"Enter", "send"},
 		{"/help", "commands"},
-		{"Tab", "switch pane"},
-		{"Esc", "back to chat"},
+		{"/undo", "rollback"},
 		{"Ctrl+C", "quit"},
 	}
 

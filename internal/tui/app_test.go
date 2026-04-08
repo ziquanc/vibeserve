@@ -52,40 +52,6 @@ func TestRootModel_WindowResize_Collapsed(t *testing.T) {
 	}
 }
 
-func TestRootModel_TabSwitchesFocus(t *testing.T) {
-	m := NewRootModel(nil, nil, "http://localhost:8080")
-	// Initialize with a size so it's ready
-	m.width = 120
-	m.height = 40
-	m.ready = true
-
-	if m.focus != PaneConversation {
-		t.Error("expected initial focus on conversation")
-	}
-
-	msg := tea.KeyPressMsg{Code: tea.KeyTab}
-	updated, _ := m.Update(msg)
-	root := updated.(RootModel)
-
-	if root.focus != PaneDashboard {
-		t.Error("expected focus to switch to dashboard after Tab")
-	}
-	if root.conversation.focused {
-		t.Error("expected conversation.focused=false")
-	}
-	if !root.dashboard.focused {
-		t.Error("expected dashboard.focused=true")
-	}
-
-	// Tab again to go back
-	updated, _ = root.Update(msg)
-	root = updated.(RootModel)
-
-	if root.focus != PaneConversation {
-		t.Error("expected focus back on conversation after second Tab")
-	}
-}
-
 func TestRootModel_CtrlC_Quits(t *testing.T) {
 	m := NewRootModel(nil, nil, "http://localhost:8080")
 	m.width = 120

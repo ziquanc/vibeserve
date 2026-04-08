@@ -395,16 +395,16 @@ func TestFormatChangeSummary(t *testing.T) {
 	if summary == "" {
 		t.Error("expected non-empty summary")
 	}
-	if !contains(summary, "Table: users") {
+	if !contains(summary, "table: users") {
 		t.Error("expected table mention in summary")
 	}
-	if !contains(summary, "Column: users.email") {
+	if !contains(summary, "column: users.email") {
 		t.Error("expected column mention in summary")
 	}
-	if !contains(summary, "Route: GET /users") {
+	if !contains(summary, "route: GET /users") {
 		t.Error("expected route mention in summary")
 	}
-	if !contains(summary, "Script: list_users") {
+	if !contains(summary, "script: list_users") {
 		t.Error("expected script mention in summary")
 	}
 }
