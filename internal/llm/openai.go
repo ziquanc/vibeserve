@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -72,8 +73,9 @@ type openaiRespFormat struct {
 }
 
 type openaiMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role             string `json:"role"`
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content,omitempty"` // some models (DeepSeek, GLM) use this
 }
 
 type openaiResponse struct {
@@ -82,7 +84,8 @@ type openaiResponse struct {
 }
 
 type openaiChoice struct {
-	Message openaiMsg `json:"message"`
+	Message      openaiMsg `json:"message"`
+	FinishReason string    `json:"finish_reason,omitempty"`
 }
 
 type openaiError struct {
@@ -131,9 +134,18 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
+	log.Printf("[openai] response status: %d, body length: %d bytes", resp.StatusCode, len(respBody))
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("openai API error (status %d): %s", resp.StatusCode, string(respBody))
 	}
+
+	// Log raw response for debugging (truncated)
+	rawPreview := string(respBody)
+	if len(rawPreview) > 500 {
+		rawPreview = rawPreview[:500] + "..."
+	}
+	log.Printf("[openai] raw response: %s", rawPreview)
 
 	var oaiResp openaiResponse
 	if err := json.Unmarshal(respBody, &oaiResp); err != nil {
@@ -148,10 +160,49 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 		return nil, fmt.Errorf("openai returned no choices")
 	}
 
+	// Try multiple content sources — different providers use different fields
 	text := oaiResp.Choices[0].Message.Content
 	if text == "" {
-		return nil, fmt.Errorf("openai returned empty content")
+		text = oaiResp.Choices[0].Message.ReasoningContent
+	}
+	if text == "" {
+		// Last resort: try to find content anywhere in the raw JSON
+		var rawMap map[string]any
+		json.Unmarshal(respBody, &rawMap)
+		text = findContentInRaw(rawMap)
+	}
+	if text == "" {
+		return nil, fmt.Errorf("openai returned empty content. Raw response: %s", rawPreview)
 	}
 
+	log.Printf("[openai] extracted text length: %d chars", len(text))
+
 	return ParseManifestResponse(text)
+}
+
+// findContentInRaw walks a raw JSON map looking for any string content field.
+// Handles providers that nest content in unexpected structures.
+func findContentInRaw(raw map[string]any) string {
+	// Try choices[0].message.content (standard)
+	if choices, ok := raw["choices"].([]any); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]any); ok {
+			if msg, ok := choice["message"].(map[string]any); ok {
+				// Try all known content field names
+				for _, key := range []string{"content", "reasoning_content", "text"} {
+					if v, ok := msg[key].(string); ok && v != "" {
+						return v
+					}
+				}
+			}
+			// Some providers put content directly on choice
+			if v, ok := choice["text"].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+	// Try output field (some newer APIs)
+	if v, ok := raw["output"].(string); ok && v != "" {
+		return v
+	}
+	return ""
 }
