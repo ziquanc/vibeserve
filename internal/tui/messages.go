@@ -27,8 +27,14 @@ type ApplyResultMsg struct {
 	Err    error
 }
 
-// UndoRequestMsg is sent when the user types "undo".
+// UndoRequestMsg is sent when the user types /undo.
 type UndoRequestMsg struct{}
+
+// RoutesRequestMsg is sent when the user types /routes.
+type RoutesRequestMsg struct{}
+
+// StatusRequestMsg is sent when the user types /status.
+type StatusRequestMsg struct{}
 
 // UndoResultMsg is sent when engine.Undo completes.
 type UndoResultMsg struct {

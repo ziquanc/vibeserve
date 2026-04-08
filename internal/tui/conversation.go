@@ -85,9 +85,15 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 				return m, func() tea.Msg { return UndoRequestMsg{} }
 			case lower == "/quit" || lower == "/exit":
 				return m, tea.Quit
+			case lower == "/routes":
+				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+				return m, func() tea.Msg { return RoutesRequestMsg{} }
+			case lower == "/status":
+				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+				return m, func() tea.Msg { return StatusRequestMsg{} }
 			case lower == "/help":
 				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
-				m.AddMessage(Message{Role: RoleAssistant, Content: "Commands:\n  /help   — Show this help\n  /undo   — Rollback last change\n  /quit   — Exit VibeServe\n  Ctrl+C  — Quit immediately\n  Tab     — Switch pane\n  Esc     — Back to chat\n\nAnything else is sent to the AI to create/modify your API."})
+				m.AddMessage(Message{Role: RoleAssistant, Content: "Commands:\n  /routes — List all API routes\n  /status — Show project status\n  /undo   — Rollback last change\n  /help   — Show this help\n  /quit   — Exit VibeServe\n  Ctrl+C  — Quit immediately\n\nAnything else is sent to the AI to create/modify your API."})
 				return m, nil
 			default:
 				// Send as prompt to AI

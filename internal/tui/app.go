@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -108,6 +109,44 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conversation, cmd = m.conversation.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+	case RoutesRequestMsg:
+		if m.engine == nil || m.engine.Manifest() == nil || len(m.engine.Manifest().Routes) == 0 {
+			m.conversation.AddMessage(Message{Role: RoleAssistant, Content: "No routes defined yet."})
+		} else {
+			var lines []string
+			lines = append(lines, "API Routes:")
+			lines = append(lines, "")
+			for _, r := range m.engine.Manifest().Routes {
+				lines = append(lines, fmt.Sprintf("  %-7s %s  →  %s", r.Method, r.Path, r.Script))
+			}
+			lines = append(lines, "")
+			lines = append(lines, fmt.Sprintf("Base URL: http://%s", m.header.serverURL))
+			m.conversation.AddMessage(Message{Role: RoleAssistant, Content: strings.Join(lines, "\n")})
+		}
+
+	case StatusRequestMsg:
+		if m.engine == nil || m.engine.Manifest() == nil {
+			m.conversation.AddMessage(Message{Role: RoleAssistant, Content: "No project loaded. Type a prompt to create your API."})
+		} else {
+			man := m.engine.Manifest()
+			var lines []string
+			lines = append(lines, fmt.Sprintf("Project: %s", man.Name))
+			if man.Description != "" {
+				lines = append(lines, fmt.Sprintf("  %s", man.Description))
+			}
+			lines = append(lines, "")
+			lines = append(lines, fmt.Sprintf("  Tables:  %d", len(man.Schemas)))
+			for _, s := range man.Schemas {
+				lines = append(lines, fmt.Sprintf("    - %s (%d columns)", s.Table, len(s.Columns)))
+			}
+			lines = append(lines, fmt.Sprintf("  Routes:  %d", len(man.Routes)))
+			lines = append(lines, fmt.Sprintf("  Scripts: %d", len(man.Scripts)))
+			lines = append(lines, "")
+			lines = append(lines, fmt.Sprintf("  Server: http://%s", m.header.serverURL))
+			lines = append(lines, fmt.Sprintf("  Data:   .vibe/state.db"))
+			m.conversation.AddMessage(Message{Role: RoleAssistant, Content: strings.Join(lines, "\n")})
 		}
 
 	case SubmitPromptMsg:
