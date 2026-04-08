@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VibeServe Console</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #111827;
+    --panel:     #1F2937;
+    --border:    #374151;
+    --text:      #E5E7EB;
+    --muted:     #9CA3AF;
+    --primary:   #7C3AED;
+    --primary-h: #6D28D9;
+    --secondary: #06B6D4;
+    --success:   #22C55E;
+    --error:     #EF4444;
+    --warning:   #F59E0B;
+    --radius:    6px;
+    --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  #header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    height: 52px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+  }
+
+  #header-brand .logo {
+    width: 28px;
+    height: 28px;
+    background: var(--primary);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    color: #fff;
+  }
+
+  #project-name {
+    font-size: 13px;
+    color: var(--secondary);
+    font-weight: 600;
+    background: rgba(6,182,212,0.1);
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(6,182,212,0.25);
+  }
+
+  #tab-bar {
+    display: flex;
+    align-items: stretch;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    padding: 0 12px;
+    gap: 2px;
+  }
+
+  .tab-btn {
+    padding: 10px 18px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+    margin-bottom: -1px;
+  }
+
+  .tab-btn:hover { color: var(--text); }
+
+  .tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  #content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .tab-panel {
+    display: none;
+    height: 100%;
+    overflow-y: auto;
+    padding: 20px;
+  }
+
+  .tab-panel.active {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .card-body { padding: 16px; }
+
+  select, textarea, input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  select:focus, textarea:focus, input[type="text"]:focus {
+    border-color: var(--primary);
+  }
+
+  select {
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239CA3AF' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 32px;
+  }
+
+  textarea {
+    resize: vertical;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    min-height: 80px;
+  }
+
+  button {
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--radius);
+    padding: 8px 16px;
+    transition: background 0.15s, opacity 0.15s;
+  }
+
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--primary-h); }
+
+  .btn-ghost {
+    background: rgba(255,255,255,0.06);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: rgba(255,255,255,0.1);
+    color: var(--text);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .badge-get    { background: rgba(34,197,94,0.15);  color: #22C55E; }
+  .badge-post   { background: rgba(124,58,237,0.15); color: #A78BFA; }
+  .badge-put    { background: rgba(245,158,11,0.15); color: #F59E0B; }
+  .badge-patch  { background: rgba(6,182,212,0.15);  color: #06B6D4; }
+  .badge-delete { background: rgba(239,68,68,0.15);  color: #EF4444; }
+
+  .status-ok  { color: var(--success); }
+  .status-err { color: var(--error); }
+
+  pre.code-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+  }
+
+  .empty-state {
+    color: var(--muted);
+    font-style: italic;
+    padding: 24px 16px;
+    text-align: center;
+  }
+
+  .loading { color: var(--muted); padding: 12px 16px; }
+
+  #route-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  #route-path-display {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--secondary);
+  }
+
+  .db-layout {
+    display: flex;
+    gap: 16px;
+    width: 100%;
+    height: 100%;
+    padding: 20px;
+  }
+
+  .db-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+
+  .db-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .table-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.12s;
+    border: 1px solid transparent;
+    margin-bottom: 3px;
+  }
+
+  .table-list-item:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: var(--border);
+  }
+
+  .table-list-item.active {
+    background: rgba(124,58,237,0.12);
+    border-color: rgba(124,58,237,0.4);
+  }
+
+  .table-list-item .tname {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .table-list-item .tcount { font-size: 12px; color: var(--muted); }
+
+  .data-table-wrap { overflow-x: auto; flex: 1; overflow-y: auto; }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .data-table th {
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(55,65,81,0.5);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .td-null { color: var(--muted); font-style: italic; }
+
+  .scripts-layout {
+    display: flex;
+    gap: 16px;
+    width: 100%;
+    height: 100%;
+    padding: 20px;
+  }
+
+  .scripts-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+
+  .scripts-main {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .script-list-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.12s;
+    border: 1px solid transparent;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+
+  .script-list-item:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: var(--border);
+    color: var(--text);
+  }
+
+  .script-list-item.active {
+    background: rgba(124,58,237,0.12);
+    border-color: rgba(124,58,237,0.4);
+    color: var(--text);
+  }
+
+  .script-list-item .script-icon { color: var(--secondary); font-size: 11px; }
+
+  #script-code-wrap { flex: 1; overflow: auto; }
+
+  #trace-log {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    min-height: 200px;
+  }
+
+  .trace-entry {
+    display: flex;
+    gap: 10px;
+    padding: 2px 0;
+    border-radius: 3px;
+  }
+
+  .trace-entry:hover { background: rgba(255,255,255,0.03); }
+  .trace-time { color: var(--muted); flex-shrink: 0; min-width: 70px; }
+  .trace-method { flex-shrink: 0; min-width: 52px; font-weight: 700; }
+  .trace-path { color: var(--text); flex: 1; }
+  .trace-status { flex-shrink: 0; min-width: 36px; font-weight: 700; }
+  .trace-duration { color: var(--muted); flex-shrink: 0; }
+
+  .trace-status-2xx { color: var(--success); }
+  .trace-status-3xx { color: var(--secondary); }
+  .trace-status-4xx { color: var(--warning); }
+  .trace-status-5xx { color: var(--error); }
+
+  .ws-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .ws-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .ws-dot.connected    { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .ws-dot.disconnected { background: var(--error); }
+  .ws-dot.connecting   { background: var(--warning); animation: pulse 1s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+
+  .trace-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+
+  @media (max-width: 700px) {
+    .db-layout, .scripts-layout { flex-direction: column; }
+    .db-sidebar, .scripts-sidebar { width: 100%; max-height: 160px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div id="header-brand">
+    <div class="logo">VS</div>
+    VibeServe Console
+  </div>
+  <div id="project-name">loading&#x2026;</div>
+</div>
+
+<div id="tab-bar">
+  <button class="tab-btn active" onclick="showTab('api')">API Explorer</button>
+  <button class="tab-btn" onclick="showTab('db')">Database</button>
+  <button class="tab-btn" onclick="showTab('scripts')">Scripts</button>
+  <button class="tab-btn" onclick="showTab('trace')">HTTP Trace</button>
+  <button class="tab-btn" onclick="showTab('manifest')">Manifest</button>
+</div>
+
+<div id="content">
+
+  <!-- Tab 1: API Explorer -->
+  <div id="tab-api" class="tab-panel active">
+    <div class="card">
+      <div class="card-header">Request</div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
+        <select id="route-select" onchange="onRouteChange()">
+          <option value="">&#x2014; select a route &#x2014;</option>
+        </select>
+        <div id="route-meta" style="display:none;">
+          <span id="route-method-badge" class="badge"></span>
+          <span id="route-path-display"></span>
+        </div>
+        <div id="body-section" style="display:none;flex-direction:column;gap:6px;">
+          <label style="font-size:12px;color:var(--muted);font-weight:600;">Request Body (JSON)</label>
+          <textarea id="request-body" rows="5" placeholder='{"key": "value"}'></textarea>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn-primary" id="send-btn" onclick="sendRequest()" disabled>Send</button>
+          <span id="send-status" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="response-card" style="display:none;">
+      <div class="card-header">
+        Response
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="response-status" style="font-family:var(--font-mono);font-weight:700;font-size:13px;"></span>
+          <span id="response-time" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <pre class="code-block" id="response-body" style="border:none;border-radius:0;margin:0;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 2: Database -->
+  <div id="tab-db" class="tab-panel" style="padding:0;overflow:hidden;">
+    <div class="db-layout">
+      <div class="db-sidebar">
+        <div class="card" style="height:100%;display:flex;flex-direction:column;">
+          <div class="card-header" style="flex-shrink:0;">Tables</div>
+          <div id="table-list" class="card-body" style="flex:1;overflow-y:auto;padding:8px;">
+            <div class="loading">Loading&#x2026;</div>
+          </div>
+        </div>
+      </div>
+      <div class="db-main">
+        <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+          <div class="card-header" style="flex-shrink:0;">
+            <span id="db-table-title">Select a table</span>
+            <span id="db-row-count" style="font-size:12px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;"></span>
+          </div>
+          <div id="table-rows-wrap" class="data-table-wrap">
+            <div class="empty-state">No table selected.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: Scripts -->
+  <div id="tab-scripts" class="tab-panel" style="padding:0;overflow:hidden;">
+    <div class="scripts-layout">
+      <div class="scripts-sidebar">
+        <div class="card" style="height:100%;display:flex;flex-direction:column;">
+          <div class="card-header" style="flex-shrink:0;">Scripts</div>
+          <div id="script-list" class="card-body" style="flex:1;overflow-y:auto;padding:8px;">
+            <div class="loading">Loading&#x2026;</div>
+          </div>
+        </div>
+      </div>
+      <div class="scripts-main">
+        <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+          <div class="card-header" style="flex-shrink:0;">
+            <span id="script-name-title">Select a script</span>
+          </div>
+          <div id="script-code-wrap" style="flex:1;overflow:auto;padding:0;">
+            <div class="empty-state">No script selected.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 4: HTTP Trace -->
+  <div id="tab-trace" class="tab-panel">
+    <div class="trace-controls">
+      <div class="ws-status">
+        <div class="ws-dot connecting" id="ws-dot"></div>
+        <span id="ws-status-text">Connecting&#x2026;</span>
+      </div>
+      <button class="btn-ghost" onclick="clearTrace()">Clear</button>
+    </div>
+    <div id="trace-log"></div>
+  </div>
+
+  <!-- Tab 5: Manifest -->
+  <div id="tab-manifest" class="tab-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <h2 style="font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;">Manifest</h2>
+      <button class="btn-ghost" onclick="loadManifest()">Refresh</button>
+    </div>
+    <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0;">
+      <div id="manifest-pre" style="flex:1;overflow:auto;">
+        <div class="loading" style="padding:16px;">Loading&#x2026;</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// ── State ────────────────────────────────────────────────────────────────────
+var routesData   = [];
+var tablesData   = [];
+var scriptsData  = [];
+var activeTable  = null;
+var activeScript = null;
+var ws           = null;
+var wsReconnectTimer = null;
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+function clearChildren(el) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+function setTextContent(id, text) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function makeEl(tag, props) {
+  var el = document.createElement(tag);
+  if (props) {
+    if (props.className) el.className = props.className;
+    if (props.textContent !== undefined) el.textContent = props.textContent;
+    if (props.style) Object.assign(el.style, props.style);
+  }
+  return el;
+}
+
+// ── Tab switching ────────────────────────────────────────────────────────────
+function showTab(tabId) {
+  var tabs = ['api','db','scripts','trace','manifest'];
+  var btns = document.querySelectorAll('.tab-btn');
+  btns.forEach(function(btn, i) {
+    btn.classList.toggle('active', tabs[i] === tabId);
+  });
+  document.querySelectorAll('.tab-panel').forEach(function(panel) {
+    panel.classList.remove('active');
+  });
+  var panel = document.getElementById('tab-' + tabId);
+  if (panel) panel.classList.add('active');
+
+  if (tabId === 'db'      && tablesData.length === 0)  loadTables();
+  if (tabId === 'scripts' && scriptsData.length === 0) loadScripts();
+  if (tabId === 'manifest')                             loadManifest();
+}
+
+// ── Project name ─────────────────────────────────────────────────────────────
+async function loadProjectName() {
+  try {
+    var r = await fetch('/_api/manifest');
+    if (!r.ok) return;
+    var data = await r.json();
+    if (data && data.name) setTextContent('project-name', data.name);
+  } catch(e) { /* ignore */ }
+}
+
+// ── Tab 1: API Explorer ──────────────────────────────────────────────────────
+async function loadRoutes() {
+  try {
+    var r = await fetch('/_api/routes');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    routesData = await r.json();
+    buildRouteSelect();
+  } catch(e) {
+    var sel = document.getElementById('route-select');
+    if (sel) {
+      clearChildren(sel);
+      var opt = document.createElement('option');
+      opt.textContent = 'Failed to load routes';
+      sel.appendChild(opt);
+    }
+  }
+}
+
+function buildRouteSelect() {
+  var sel = document.getElementById('route-select');
+  if (!sel) return;
+  clearChildren(sel);
+
+  var placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '\u2014 select a route \u2014';
+  sel.appendChild(placeholder);
+
+  if (!routesData || routesData.length === 0) {
+    var empty = document.createElement('option');
+    empty.disabled = true;
+    empty.textContent = '(no routes defined)';
+    sel.appendChild(empty);
+    return;
+  }
+
+  routesData.forEach(function(rt, i) {
+    var opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = rt.method + '  ' + rt.path;
+    sel.appendChild(opt);
+  });
+}
+
+function onRouteChange() {
+  var sel      = document.getElementById('route-select');
+  var meta     = document.getElementById('route-meta');
+  var bodySec  = document.getElementById('body-section');
+  var sendBtn  = document.getElementById('send-btn');
+  var badge    = document.getElementById('route-method-badge');
+  var pathEl   = document.getElementById('route-path-display');
+  var respCard = document.getElementById('response-card');
+
+  var idx = sel ? sel.value : '';
+  if (idx === '') {
+    if (meta)    meta.style.display    = 'none';
+    if (bodySec) bodySec.style.display = 'none';
+    if (sendBtn) sendBtn.disabled      = true;
+    return;
+  }
+
+  var rt = routesData[parseInt(idx, 10)];
+  if (!rt) return;
+
+  if (meta)   meta.style.display = 'flex';
+  if (sendBtn) sendBtn.disabled  = false;
+
+  if (badge) {
+    badge.className   = 'badge badge-' + rt.method.toLowerCase();
+    badge.textContent = rt.method;
+  }
+  if (pathEl) pathEl.textContent = rt.path;
+
+  var hasbody = ['POST','PUT','PATCH'].indexOf(rt.method.toUpperCase()) !== -1;
+  if (bodySec) bodySec.style.display = hasbody ? 'flex' : 'none';
+
+  var bodyEl = document.getElementById('request-body');
+  if (bodyEl && hasbody) {
+    if (rt.request_body && typeof rt.request_body === 'object') {
+      try { bodyEl.value = JSON.stringify(rt.request_body, null, 2); }
+      catch(e) { bodyEl.value = ''; }
+    } else if (!bodyEl.value) {
+      bodyEl.value = '{}';
+    }
+  }
+
+  if (respCard) respCard.style.display = 'none';
+}
+
+async function sendRequest() {
+  var sel = document.getElementById('route-select');
+  var idx = sel ? sel.value : '';
+  if (idx === '') return;
+
+  var rt = routesData[parseInt(idx, 10)];
+  if (!rt) return;
+
+  var sendBtn    = document.getElementById('send-btn');
+  var sendStatus = document.getElementById('send-status');
+  var respCard   = document.getElementById('response-card');
+  var respStatus = document.getElementById('response-status');
+  var respTime   = document.getElementById('response-time');
+  var respBody   = document.getElementById('response-body');
+
+  if (sendBtn)    sendBtn.disabled    = true;
+  if (sendStatus) sendStatus.textContent = 'Sending\u2026';
+
+  var options = { method: rt.method, headers: { 'Content-Type': 'application/json' } };
+
+  var hasbody = ['POST','PUT','PATCH'].indexOf(rt.method.toUpperCase()) !== -1;
+  if (hasbody) {
+    var bodyEl = document.getElementById('request-body');
+    if (bodyEl) {
+      var raw = bodyEl.value.trim();
+      if (raw) {
+        try {
+          JSON.parse(raw);
+          options.body = raw;
+        } catch(e) {
+          if (sendStatus) sendStatus.textContent = 'Invalid JSON in request body.';
+          if (sendBtn) sendBtn.disabled = false;
+          return;
+        }
+      }
+    }
+  }
+
+  var t0 = Date.now();
+  try {
+    var res = await fetch(rt.path, options);
+    var elapsed = Date.now() - t0;
+    var text = await res.text();
+    var prettyBody = text;
+    try { prettyBody = JSON.stringify(JSON.parse(text), null, 2); } catch(e) { /* raw */ }
+
+    if (respCard) respCard.style.display = '';
+    if (respStatus) {
+      respStatus.className   = res.ok ? 'status-ok' : 'status-err';
+      respStatus.textContent = String(res.status) + ' ' + res.statusText;
+    }
+    if (respTime) respTime.textContent   = elapsed + 'ms';
+    if (respBody) respBody.textContent   = prettyBody;
+    if (sendStatus) sendStatus.textContent = '';
+  } catch(e) {
+    if (respCard)   respCard.style.display = '';
+    if (respStatus) {
+      respStatus.className   = 'status-err';
+      respStatus.textContent = 'Network error';
+    }
+    if (respBody)   respBody.textContent = String(e);
+    if (sendStatus) sendStatus.textContent = '';
+  }
+
+  if (sendBtn) sendBtn.disabled = false;
+}
+
+// ── Tab 2: Database ──────────────────────────────────────────────────────────
+async function loadTables() {
+  var listEl = document.getElementById('table-list');
+  if (listEl) clearChildren(listEl);
+
+  try {
+    var r = await fetch('/_api/tables');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    tablesData = await r.json();
+    renderTableList();
+  } catch(e) {
+    if (listEl) {
+      var err = makeEl('div', { className: 'empty-state', textContent: 'Failed to load tables.' });
+      listEl.appendChild(err);
+    }
+  }
+}
+
+function renderTableList() {
+  var listEl = document.getElementById('table-list');
+  if (!listEl) return;
+  clearChildren(listEl);
+
+  if (!tablesData || tablesData.length === 0) {
+    listEl.appendChild(makeEl('div', { className: 'empty-state', textContent: 'No tables found.' }));
+    return;
+  }
+
+  tablesData.forEach(function(tbl) {
+    var item = document.createElement('div');
+    item.className = 'table-list-item' + (activeTable === tbl.name ? ' active' : '');
+
+    var nameSpan  = makeEl('span', { className: 'tname',  textContent: tbl.name });
+    var countSpan = makeEl('span', { className: 'tcount', textContent: tbl.row_count != null ? String(tbl.row_count) + ' rows' : '' });
+
+    item.appendChild(nameSpan);
+    item.appendChild(countSpan);
+    item.addEventListener('click', function() {
+      activeTable = tbl.name;
+      renderTableList();
+      loadTableRows(tbl.name);
+    });
+    listEl.appendChild(item);
+  });
+}
+
+async function loadTableRows(tableName) {
+  var wrap  = document.getElementById('table-rows-wrap');
+  var title = document.getElementById('db-table-title');
+  var count = document.getElementById('db-row-count');
+
+  if (title) title.textContent = tableName;
+  if (count) count.textContent = '';
+  if (wrap) {
+    clearChildren(wrap);
+    wrap.appendChild(makeEl('div', { className: 'loading', textContent: 'Loading rows\u2026' }));
+  }
+
+  try {
+    var r = await fetch('/_api/tables/' + encodeURIComponent(tableName) + '/rows?limit=100');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    renderTableRows(data, wrap, count);
+  } catch(e) {
+    if (wrap) {
+      clearChildren(wrap);
+      wrap.appendChild(makeEl('div', { className: 'empty-state', textContent: 'Failed to load rows: ' + e.message }));
+    }
+  }
+}
+
+function renderTableRows(data, wrap, countEl) {
+  if (!wrap) return;
+  clearChildren(wrap);
+
+  var rows = data.rows || [];
+  if (countEl) countEl.textContent = data.total != null ? data.total + ' total rows' : '';
+
+  if (rows.length === 0) {
+    wrap.appendChild(makeEl('div', { className: 'empty-state', textContent: 'Table is empty.' }));
+    return;
+  }
+
+  var cols = Object.keys(rows[0]);
+  var table = document.createElement('table');
+  table.className = 'data-table';
+
+  var thead = document.createElement('thead');
+  var headerRow = document.createElement('tr');
+  cols.forEach(function(col) {
+    headerRow.appendChild(makeEl('th', { textContent: col }));
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  rows.forEach(function(row) {
+    var tr = document.createElement('tr');
+    cols.forEach(function(col) {
+      var td = document.createElement('td');
+      var val = row[col];
+      if (val === null || val === undefined) {
+        td.textContent = 'null';
+        td.classList.add('td-null');
+      } else if (typeof val === 'object') {
+        td.textContent = JSON.stringify(val);
+      } else {
+        td.textContent = String(val);
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+}
+
+// ── Tab 3: Scripts ────────────────────────────────────────────────────────────
+async function loadScripts() {
+  var listEl = document.getElementById('script-list');
+  if (listEl) clearChildren(listEl);
+
+  try {
+    var r = await fetch('/_api/scripts');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    scriptsData = await r.json();
+    renderScriptList();
+  } catch(e) {
+    var listEl2 = document.getElementById('script-list');
+    if (listEl2) {
+      listEl2.appendChild(makeEl('div', { className: 'empty-state', textContent: 'Failed to load scripts.' }));
+    }
+  }
+}
+
+function renderScriptList() {
+  var listEl = document.getElementById('script-list');
+  if (!listEl) return;
+  clearChildren(listEl);
+
+  if (!scriptsData || scriptsData.length === 0) {
+    listEl.appendChild(makeEl('div', { className: 'empty-state', textContent: 'No scripts found.' }));
+    return;
+  }
+
+  scriptsData.forEach(function(s) {
+    var item = document.createElement('div');
+    item.className = 'script-list-item' + (activeScript === s.name ? ' active' : '');
+
+    var icon = makeEl('span', { className: 'script-icon', textContent: '{}' });
+    var name = makeEl('span', { textContent: s.name });
+
+    item.appendChild(icon);
+    item.appendChild(name);
+    item.addEventListener('click', function() {
+      activeScript = s.name;
+      renderScriptList();
+      showScriptCode(s);
+    });
+    listEl.appendChild(item);
+  });
+}
+
+function showScriptCode(s) {
+  setTextContent('script-name-title', s.name);
+  var codeWrap = document.getElementById('script-code-wrap');
+  if (!codeWrap) return;
+  clearChildren(codeWrap);
+
+  var pre = document.createElement('pre');
+  pre.className = 'code-block';
+  pre.style.margin = '0';
+  pre.style.border = 'none';
+  pre.style.borderRadius = '0';
+  pre.style.minHeight = '100%';
+  pre.textContent = s.code || '(empty)';
+  codeWrap.appendChild(pre);
+}
+
+// ── Tab 4: HTTP Trace ─────────────────────────────────────────────────────────
+function connectWS() {
+  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var url = protocol + '//' + location.host + '/_ws';
+  setWsStatus('connecting', 'Connecting\u2026');
+
+  try { ws = new WebSocket(url); }
+  catch(e) { setWsStatus('disconnected', 'Failed to connect'); return; }
+
+  ws.onopen = function() { setWsStatus('connected', 'Connected'); };
+
+  ws.onmessage = function(e) {
+    var data = e.data;
+    try {
+      appendTraceEntry(JSON.parse(data));
+    } catch(err) {
+      appendTraceRaw(data);
+    }
+  };
+
+  ws.onerror = function() { setWsStatus('disconnected', 'Connection error'); };
+
+  ws.onclose = function() {
+    setWsStatus('disconnected', 'Disconnected \u2014 retrying in 3s');
+    ws = null;
+    if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = setTimeout(connectWS, 3000);
+  };
+}
+
+function setWsStatus(state, text) {
+  var dot    = document.getElementById('ws-dot');
+  var status = document.getElementById('ws-status-text');
+  if (dot)    dot.className      = 'ws-dot ' + state;
+  if (status) status.textContent = text;
+}
+
+function appendTraceEntry(entry) {
+  var log = document.getElementById('trace-log');
+  if (!log) return;
+
+  var row = document.createElement('div');
+  row.className = 'trace-entry';
+
+  var timeEl = makeEl('span', { className: 'trace-time', textContent: entry.time ? formatTime(entry.time) : nowTime() });
+
+  var methodEl = makeEl('span', { className: 'trace-method', textContent: entry.method || '' });
+  methodEl.style.color = methodColor(entry.method || '');
+
+  var pathEl   = makeEl('span', { className: 'trace-path',   textContent: entry.path || entry.url || '' });
+  var arrowEl  = makeEl('span', { textContent: '\u2192' });
+  arrowEl.style.color = 'var(--border)';
+
+  var statusEl = makeEl('span', { className: 'trace-status ' + statusClass(entry.status), textContent: entry.status ? String(entry.status) : '?' });
+
+  var durEl = makeEl('span', { className: 'trace-duration', textContent: '' });
+  if (entry.duration_ms != null)  durEl.textContent = '(' + entry.duration_ms + 'ms)';
+  else if (entry.elapsed_ms != null) durEl.textContent = '(' + entry.elapsed_ms + 'ms)';
+
+  row.appendChild(timeEl);
+  row.appendChild(methodEl);
+  row.appendChild(pathEl);
+  row.appendChild(arrowEl);
+  row.appendChild(statusEl);
+  row.appendChild(durEl);
+
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+function appendTraceRaw(text) {
+  var log = document.getElementById('trace-log');
+  if (!log) return;
+
+  var row    = makeEl('div', { className: 'trace-entry' });
+  var timeEl = makeEl('span', { className: 'trace-time', textContent: nowTime() });
+  var msgEl  = makeEl('span', { textContent: text });
+  msgEl.style.color = 'var(--muted)';
+  row.appendChild(timeEl);
+  row.appendChild(msgEl);
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearTrace() {
+  var log = document.getElementById('trace-log');
+  if (log) clearChildren(log);
+}
+
+function formatTime(iso) {
+  try { return new Date(iso).toTimeString().slice(0,8); }
+  catch(e) { return nowTime(); }
+}
+
+function nowTime() {
+  return new Date().toTimeString().slice(0,8);
+}
+
+function statusClass(code) {
+  if (!code) return '';
+  var n = parseInt(code, 10);
+  if (n >= 500) return 'trace-status-5xx';
+  if (n >= 400) return 'trace-status-4xx';
+  if (n >= 300) return 'trace-status-3xx';
+  if (n >= 200) return 'trace-status-2xx';
+  return '';
+}
+
+function methodColor(m) {
+  var colors = { GET:'#22C55E', POST:'#A78BFA', PUT:'#F59E0B', PATCH:'#06B6D4', DELETE:'#EF4444' };
+  return colors[m.toUpperCase()] || 'var(--muted)';
+}
+
+// ── Tab 5: Manifest ───────────────────────────────────────────────────────────
+async function loadManifest() {
+  var wrap = document.getElementById('manifest-pre');
+  if (wrap) {
+    clearChildren(wrap);
+    wrap.appendChild(makeEl('div', { className: 'loading', style: { padding: '16px' }, textContent: 'Loading\u2026' }));
+  }
+
+  try {
+    var r = await fetch('/_api/manifest');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+
+    if (wrap) {
+      clearChildren(wrap);
+      var pre = document.createElement('pre');
+      pre.className = 'code-block';
+      pre.style.margin       = '0';
+      pre.style.border       = 'none';
+      pre.style.borderRadius = '0';
+      pre.style.minHeight    = '100%';
+      pre.textContent = JSON.stringify(data, null, 2);
+      wrap.appendChild(pre);
+    }
+  } catch(e) {
+    if (wrap) {
+      clearChildren(wrap);
+      wrap.appendChild(makeEl('div', { className: 'empty-state', textContent: 'Failed to load manifest: ' + e.message }));
+    }
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(function init() {
+  loadProjectName();
+  loadRoutes();
+  connectWS();
+}());
+</script>
+</body>
+</html>
