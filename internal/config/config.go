@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -56,6 +57,18 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// Save writes the config to a YAML file at the given path.
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // APIKey reads the API key from the environment variable specified in APIKeyEnv.
