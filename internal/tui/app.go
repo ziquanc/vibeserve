@@ -179,6 +179,31 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Content: "Undo successful",
 			})
 		}
+
+	// Engine bus events
+	case RouteAddedMsg:
+		m.dashboard.AddRouteEvent(string(msg))
+	case RouteUpdatedMsg:
+		m.dashboard.AddRouteEvent(string(msg))
+	case RouteRemovedMsg:
+		m.dashboard.AddRouteEvent(string(msg))
+	case HTTPRequestMsg:
+		m.dashboard.AddHTTPTrace(msg)
+	case HTTPResponseMsg:
+		m.dashboard.AddHTTPTrace(msg)
+	case SnapshotCreatedMsg:
+		m.dashboard.AddSnapshot(msg)
+	case SnapshotRestoredMsg:
+		m.dashboard.AddSnapshot(msg)
+	case SchemaAlteredMsg:
+		m.dashboard.AddSchemaEvent(string(msg))
+	case DataSeededMsg:
+		m.dashboard.AddSchemaEvent(string(msg))
+	case LogMsg:
+		m.conversation.AddMessage(Message{
+			Role:    RoleSystem,
+			Content: fmt.Sprintf("[%s] %s", msg.Level, msg.Message),
+		})
 	}
 
 	return m, tea.Batch(cmds...)

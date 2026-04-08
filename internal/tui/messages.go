@@ -62,3 +62,32 @@ type SnapshotRestoredMsg struct {
 
 // FlashClearMsg is sent to clear flash highlights on dashboard items.
 type FlashClearMsg struct{}
+
+// --- Engine Bus event messages ---
+
+// RouteAddedMsg is published when a new route is registered.
+type RouteAddedMsg string
+
+// RouteUpdatedMsg is published when an existing route is modified.
+type RouteUpdatedMsg string
+
+// RouteRemovedMsg is published when a route is removed.
+type RouteRemovedMsg string
+
+// SchemaAlteredMsg is published when a schema migration completes.
+type SchemaAlteredMsg string
+
+// DataSeededMsg is published when seed data is inserted.
+type DataSeededMsg string
+
+// LLMStartedMsg is published when an LLM request begins.
+type LLMStartedMsg string
+
+// LLMCompletedMsg is published when an LLM request completes.
+type LLMCompletedMsg struct{}
+
+// LogMsg carries a log event from the engine.
+type LogMsg struct {
+	Level   string
+	Message string
+}
