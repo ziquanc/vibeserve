@@ -94,7 +94,3 @@ func (m StatusBarModel) View() string {
 	return content + filler
 }
 
-// RenderSplitPane renders two panes side by side.
-func RenderSplitPane(left, right string, width, height int, focus Pane) string {
-	return left + right
-}
