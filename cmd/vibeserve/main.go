@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"github.com/vibeserve/vibeserve/internal/config"
 	"github.com/vibeserve/vibeserve/internal/engine"
@@ -20,6 +19,7 @@ import (
 	"github.com/vibeserve/vibeserve/internal/runtime"
 	"github.com/vibeserve/vibeserve/internal/snapshot"
 	"github.com/vibeserve/vibeserve/internal/store"
+	"github.com/vibeserve/vibeserve/internal/tui"
 )
 
 var version = "0.1.0"
@@ -248,86 +248,22 @@ func runDev(configPath, manifestPath, host string, port int) error {
 	}()
 	log.Printf("Server running at http://%s:%d", cfg.Server.Host, cfg.Server.Port)
 
-	// Handle OS signals for graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	// Create TUI
+	serverURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
+	rootModel := tui.NewRootModel(eng, bus, serverURL)
+	p := tea.NewProgram(rootModel)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Bridge bus events to TUI
+	tui.NewBridge(p, bus)
 
-	// REPL loop
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Println("VibeServe dev mode. Type a prompt, or: quit, exit, undo, routes, status")
-
-	replDone := make(chan struct{})
-	go func() {
-		defer close(replDone)
-		for {
-			fmt.Print("vibe> ")
-			if !scanner.Scan() {
-				break
-			}
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-
-			switch strings.ToLower(line) {
-			case "quit", "exit":
-				cancel()
-				return
-
-			case "undo":
-				if err := eng.Undo(); err != nil {
-					fmt.Fprintf(os.Stderr, "undo error: %v\n", err)
-				} else {
-					fmt.Println("Undo successful.")
-				}
-
-			case "routes":
-				cur := eng.Manifest()
-				if cur == nil || len(cur.Routes) == 0 {
-					fmt.Println("No routes defined.")
-				} else {
-					for _, r := range cur.Routes {
-						fmt.Printf("  %-6s %s  → %s\n", r.Method, r.Path, r.Script)
-					}
-				}
-
-			case "status":
-				cur := eng.Manifest()
-				if cur == nil {
-					fmt.Println("No manifest loaded.")
-				} else {
-					fmt.Printf("Manifest: %s | Routes: %d | Schemas: %d\n",
-						cur.Name, len(cur.Routes), len(cur.Schemas))
-				}
-
-			default:
-				result, err := eng.Apply(ctx, line)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				} else {
-					fmt.Print(engine.FormatChangeSummary(result))
-				}
-			}
-		}
-	}()
-
-	select {
-	case err := <-serverErrCh:
-		cancel()
-		<-replDone
-		return err
-	case <-sigCh:
-		log.Println("Shutting down...")
-		cancel()
-		<-replDone
-		return srv.Shutdown(context.Background())
-	case <-ctx.Done():
-		log.Println("Shutting down...")
-		return srv.Shutdown(context.Background())
+	// Run TUI (blocks until quit)
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("TUI error: %w", err)
 	}
+
+	// Cleanup
+	srv.Shutdown(context.Background())
+	return nil
 }
 
 func runUp(manifestPath, host string, port int) error {
