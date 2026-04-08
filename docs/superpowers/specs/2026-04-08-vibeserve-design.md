@@ -84,6 +84,7 @@ Typed, channel-based pub/sub within the single process. Not Kafka — just Go ch
 
 Manifest lifecycle:
 - `ManifestGenerated` — LLM produced a new manifest
+- `ManifestValidationFailed` — three-layer validation failed (structural, referential, or compilation)
 - `ManifestDiffComputed` — Differ compared old vs new, carries `[]Change`
 
 Schema / Data:
@@ -204,6 +205,18 @@ The manifest is the "constitution" — the single source of truth produced by th
 - The LLM receives the current manifest as context, plus the conversation history.
 - Migration Memory Rule: the LLM prompt explicitly states "only add or modify columns, never rename or remove existing primary key or foreign key columns" to ensure safe auto-migration.
 
+### 6.1 Three-Layer Manifest Validation (`manifest/validate.go`)
+
+Every manifest passes through three validation gates before the Differ runs:
+
+1. **Structural validation** — JSON parses correctly, all required fields present, types match (e.g., `method` is one of GET/POST/PUT/PATCH/DELETE). Fast, catches LLM output corruption.
+
+2. **Referential integrity** — Every `route.script` references a name that exists in `scripts[]`. Every table referenced in Tengo `db.*` calls exists in `schemas[]`. Every `seeds[].table` exists in `schemas[]`. Every `references` foreign key points to a valid `table.column`.
+
+3. **Script compilation** — Each script in `scripts[]` is passed through Tengo's `Compile()`. Catches syntax errors before the script ever reaches the runtime. This is cheaper than the full in-memory dry run (`ScriptValidationStarted`) because it only checks syntax, not execution.
+
+If any gate fails, the engine emits `ManifestValidationFailed` (new event) with the specific error, and the old manifest remains active. The TUI shows the error and invites the user to rephrase.
+
 ## 7. Vibe Standard Library (Tengo Sandbox Contract)
 
 All Tengo scripts execute in a hermetically sealed sandbox. They can only interact with the system through these functions:
@@ -222,7 +235,7 @@ All Tengo scripts execute in a hermetically sealed sandbox. They can only intera
 - `request.body() -> object` — parsed JSON body
 - `request.header(name) -> string` — request header
 - `request.method() -> string` — HTTP method
-- `request.auth() -> object|undefined` — parses the `Authorization` header. For `Bearer <token>`, attempts Base64-decode of the token payload as JSON (e.g., `{"role": "admin", "user_id": 1}`). Returns the decoded object, or `undefined` if no header present. This enables auth simulation without a real auth provider — the frontend simply sends a crafted Bearer token.
+- `request.auth() -> object|undefined` — parses the `Authorization` header. For `Bearer <token>`, attempts Base64-decode of the token payload as JSON (e.g., `{"role": "admin", "user_id": 1}`). If Base64 decode fails (token is opaque), returns `{"raw_token": "<token>"}` instead of `undefined`, enabling simple token-matching auth (`if request.auth().raw_token == "secret"`). Returns `undefined` only when no Authorization header is present.
 
 ### response (HTTP Response)
 - `response.json(data, status?) -> void` — JSON response (default 200)
@@ -249,6 +262,37 @@ All Tengo scripts execute in a hermetically sealed sandbox. They can only intera
 **Intentionally excluded:** filesystem access, network calls (`http.get`), subprocess execution (`exec`), external module imports. The sandbox is sealed.
 
 **Security model:** All `db.*` functions use parameterized queries only. No raw SQL execution. This prevents SQL injection in AI-generated code.
+
+### 7.1 SQLite Type Mapping
+
+SQLite has a flexible type affinity system. The manifest's column types map to SQLite storage as follows:
+
+| Manifest Type | SQLite Affinity | Storage Format | stdlib Handling |
+|---|---|---|---|
+| `INTEGER` | INTEGER | Native int64 | Direct pass-through |
+| `TEXT` | TEXT | UTF-8 string | Direct pass-through |
+| `REAL` | REAL | 64-bit float | Direct pass-through |
+| `BOOLEAN` | INTEGER | 0 or 1 | stdlib converts to/from `true`/`false` in Tengo |
+| `DATE` | TEXT | `YYYY-MM-DD` | `date.*` functions accept and return this format |
+| `DATETIME` | TEXT | ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) | `date.*` functions handle conversion |
+
+The `store` module handles this mapping transparently. Tengo scripts always work with natural types (booleans, date strings) — never raw SQLite integers for booleans.
+
+### 7.2 CORS (Cross-Origin Resource Sharing)
+
+Frontend engineers running `localhost:3000` (React/Vue) against `localhost:8080` (VibeServe) will hit CORS errors immediately.
+
+**Default behavior**: In both `dev` and `up` modes, VibeServe responds to all requests with permissive CORS headers:
+
+```
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+```
+
+**Configuration**: `cors: true` (default) in `.vibe/config.yaml`. Set to `false` to disable.
+
+Preflight `OPTIONS` requests are handled automatically by the router before reaching Tengo scripts.
 
 ## 8. TUI Design (Bubble Tea)
 
@@ -285,7 +329,7 @@ RootModel
 - `Tab`: switch focus between left and right panes
 - `j/k` or `Up/Down` (right pane): cycle between dashboard panels
 - `Enter` (right pane): expand/collapse panel
-- `t` (on route): auto-generate and execute curl test
+- `t` (on route): auto-generate test request from manifest's `request_body` schema (random realistic data for POST/PUT), execute, show result in HTTP Trace
 - `u` (on snapshot): restore snapshot with confirmation
 - `Ctrl+C`: quit
 
@@ -308,7 +352,7 @@ Served at `localhost:<port>/_console`. Embedded via Go's `embed` package. Commun
 
 1. **API Explorer** — Postman-like request builder. Auto-generates request bodies from manifest schema. Send button executes real requests.
 
-2. **Database Browser** — Full table browsing with filtering. Column schema inspection. Row counts and DB size.
+2. **Database Browser** — Full table browsing with filtering. Column schema inspection. Row counts and DB size. Includes a **[Download SQLite File]** button for exporting the raw `.vibe/state.db`.
 
 3. **Script Viewer** — Read-only Tengo source viewer. Shows stdlib function usage sidebar. Displays validation status and last execution metrics.
 
@@ -316,7 +360,7 @@ Served at `localhost:<port>/_console`. Embedded via Go's `embed` package. Commun
 
 5. **Manifest** — Raw JSON view of current System Manifest.
 
-**Tech stack**: Single-page app built with Preact + HTM (no build step, no JSX transpilation). No external CDN dependencies — all assets embedded in the binary via Go's `embed` package.
+**Tech stack**: Single-page app built with Preact + HTM (no build step, no JSX transpilation). No external CDN dependencies — all assets embedded in the binary via Go's `embed` package. Static assets in `internal/web/static/` must be minified/compressed before embedding to control binary size.
 
 ## 10. CLI Subcommands
 
@@ -386,6 +430,7 @@ ollama_host: http://localhost:11434
 server:
   port: 8080
   host: localhost
+  cors: true
 ```
 
 API keys are never stored in config — only the environment variable name. The binary reads the key from the environment at runtime.
@@ -414,6 +459,8 @@ Get a static manifest-driven server running. No LLM, no TUI. User hand-writes a 
 
 Validates: manifest schema, trie router, SQLite store, Tengo runtime, Vibe stdlib, HTTP serving.
 
+**Hard gate**: Parameterized queries must be enforced from day one. The `db.*` stdlib functions must reject any attempt to concatenate user input into SQL strings. If this isn't locked down in Phase 1, it becomes a painful retrofit later.
+
 ### Phase 2: The Brain (LLM integration)
 Add the pluggable LLM layer. `vibeserve dev` in CLI-REPL mode (no TUI yet). User types, LLM produces manifest, Differ applies changes.
 
@@ -423,6 +470,8 @@ Validates: LLM provider abstraction, manifest diffing, auto-migration, snapshot/
 Replace the simple REPL with the full split-pane TUI. Flash updates, streaming, cascade feedback.
 
 Validates: Bubble Tea event integration, concurrent TUI + HTTP server, visual feedback loop.
+
+**Demo-ready feature**: The `t` key quick-test should auto-generate realistic random data from the manifest's `request_body` schema (random names, dates, IDs) for POST/PUT endpoints. This makes demo videos visually compelling.
 
 ### Phase 4: The Magnifying Glass (Web Console)
 Add the embedded web console with all five tabs.
