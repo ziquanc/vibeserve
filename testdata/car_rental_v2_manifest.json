@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "name": "malaysia-car-rental",
+  "description": "Car rental API with duration-based discounts and customer loyalty tiers",
+  "schemas": [
+    {
+      "table": "vehicles",
+      "columns": [
+        {"name": "id", "type": "INTEGER", "primary": true, "auto": true},
+        {"name": "make", "type": "TEXT", "required": true},
+        {"name": "model", "type": "TEXT", "required": true},
+        {"name": "plate", "type": "TEXT", "unique": true},
+        {"name": "daily_rate", "type": "REAL", "required": true},
+        {"name": "available", "type": "BOOLEAN", "default": true}
+      ]
+    },
+    {
+      "table": "bookings",
+      "columns": [
+        {"name": "id", "type": "INTEGER", "primary": true, "auto": true},
+        {"name": "vehicle_id", "type": "INTEGER"},
+        {"name": "customer", "type": "TEXT", "required": true},
+        {"name": "start_date", "type": "DATE", "required": true},
+        {"name": "end_date", "type": "DATE", "required": true},
+        {"name": "total_price", "type": "REAL"},
+        {"name": "status", "type": "TEXT", "default": "pending"}
+      ]
+    },
+    {
+      "table": "customers",
+      "columns": [
+        {"name": "id", "type": "INTEGER", "primary": true, "auto": true},
+        {"name": "name", "type": "TEXT", "required": true},
+        {"name": "loyalty_tier", "type": "TEXT", "default": "standard"}
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "path": "/vehicles",
+      "method": "GET",
+      "description": "List all available vehicles",
+      "script": "list_vehicles",
+      "response_type": "array"
+    },
+    {
+      "path": "/vehicles/:id",
+      "method": "GET",
+      "description": "Get vehicle details",
+      "script": "get_vehicle",
+      "response_type": "object"
+    },
+    {
+      "path": "/bookings",
+      "method": "POST",
+      "description": "Create booking with discount logic",
+      "script": "create_booking",
+      "request_body": {
+        "vehicle_id": "INTEGER",
+        "customer": "TEXT",
+        "start_date": "DATE",
+        "end_date": "DATE"
+      },
+      "response_type": "object"
+    },
+    {
+      "path": "/customers",
+      "method": "GET",
+      "description": "List all customers",
+      "script": "list_customers",
+      "response_type": "array"
+    }
+  ],
+  "scripts": [
+    {
+      "name": "list_vehicles",
+      "code": "result := db.query(\"SELECT * FROM vehicles WHERE available = ?\", [true])\nresponse.json(result)"
+    },
+    {
+      "name": "get_vehicle",
+      "code": "id := request.param(\"id\")\nrow := db.query_one(\"SELECT * FROM vehicles WHERE id = ?\", [id])\nif row == undefined {\n  response.fail(404, \"Vehicle not found\")\n} else {\n  response.json(row)\n}"
+    },
+    {
+      "name": "create_booking",
+      "code": "body := request.body()\nvehicle := db.query_one(\"SELECT * FROM vehicles WHERE id = ?\", [body.vehicle_id])\nif vehicle == undefined {\n  response.fail(404, \"Vehicle not found\")\n}\ndays := date.diff_days(body.start_date, body.end_date)\nrate := vehicle.daily_rate\nif days >= 7 {\n  rate = rate * 0.8\n}\ntotal := rate * days\nbooking := db.insert(\"bookings\", {\n  vehicle_id: body.vehicle_id,\n  customer: body.customer,\n  start_date: body.start_date,\n  end_date: body.end_date,\n  total_price: total,\n  status: \"confirmed\"\n})\ndb.update(\"vehicles\", vehicle.id, { available: false })\nresponse.json(booking, 201)"
+    },
+    {
+      "name": "list_customers",
+      "code": "result := db.query(\"SELECT * FROM customers\", [])\nresponse.json(result)"
+    }
+  ],
+  "seeds": [
+    {
+      "table": "vehicles",
+      "rows": [
+        {"make": "Perodua", "model": "Myvi", "plate": "WKL 3321", "daily_rate": 89.00, "available": true},
+        {"make": "Proton", "model": "X50", "plate": "JHR 7788", "daily_rate": 149.00, "available": true},
+        {"make": "Toyota", "model": "Vios", "plate": "PNG 1234", "daily_rate": 129.00, "available": true}
+      ]
+    },
+    {
+      "table": "customers",
+      "rows": [
+        {"name": "Ahmad", "loyalty_tier": "gold"},
+        {"name": "Siti", "loyalty_tier": "standard"},
+        {"name": "Ravi", "loyalty_tier": "silver"}
+      ]
+    }
+  ]
+}
