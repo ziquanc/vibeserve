@@ -1,4 +1,20 @@
-.vibe/
-*.db
-.DS_Store
+# Binary
 /vibeserve
+dist/
+
+# VibeServe data
+.vibe/
+
+# Database files (except testdata)
+*.db
+!testdata/*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
