@@ -30,6 +30,24 @@ func Validate(m *Manifest) error {
 	return nil
 }
 
+// ValidateStructure runs only structural and referential checks (no compilation).
+// Used during blueprint proposal where script compilation errors are non-fatal.
+func ValidateStructure(m *Manifest) error {
+	if err := validateStructural(m); err != nil {
+		return fmt.Errorf("structural: %w", err)
+	}
+	if err := validateReferential(m); err != nil {
+		return fmt.Errorf("referential: %w", err)
+	}
+	return nil
+}
+
+// ValidateCompilation runs only the script compilation check.
+// Returns nil if all scripts compile, or an error describing the first failure.
+func ValidateCompilation(m *Manifest) error {
+	return validateCompilation(m)
+}
+
 func validateStructural(m *Manifest) error {
 	if m.Name == "" {
 		return fmt.Errorf("manifest name is required")

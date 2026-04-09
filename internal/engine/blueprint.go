@@ -57,11 +57,18 @@ func (e *Engine) proposeBlueprint(newManifest *manifest.Manifest) (*BlueprintInf
 		e.bus.Publish(Event{Type: EventManifestGenerated, Data: newManifest})
 	}
 
-	if err := manifest.Validate(newManifest); err != nil {
+	// Structural + referential checks are hard gates.
+	if err := manifest.ValidateStructure(newManifest); err != nil {
 		if e.bus != nil {
 			e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
 		}
 		return nil, fmt.Errorf("manifest validation failed: %w", err)
+	}
+
+	// Compilation errors are warnings during proposal — the user can refine.
+	var compileWarnings []string
+	if err := manifest.ValidateCompilation(newManifest); err != nil {
+		compileWarnings = append(compileWarnings, fmt.Sprintf("Script issue: %v (will be fixed on apply)", err))
 	}
 
 	changes := manifest.Diff(e.manifest, newManifest)
@@ -71,7 +78,7 @@ func (e *Engine) proposeBlueprint(newManifest *manifest.Manifest) (*BlueprintInf
 	heuristics := ScoreHeuristics(newManifest)
 	summary := formatChangeSummaryFromChanges(changes)
 
-	var warnings []string
+	warnings := append([]string{}, compileWarnings...)
 	for _, c := range changes {
 		switch c.Type {
 		case manifest.ChangeDropColumn:
