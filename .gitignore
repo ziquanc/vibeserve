@@ -1,6 +1,10 @@
 # Binary
 /vibeserve
+vibeserve_*
 dist/
+
+# Internal docs (specs, plans)
+docs/superpowers/
 
 # VibeServe data
 .vibe/
