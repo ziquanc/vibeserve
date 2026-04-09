@@ -730,14 +730,26 @@ async function poll() {
     const empty = document.getElementById('empty-state');
     const bp = document.getElementById('blueprint');
 
+    var footer = document.getElementById('footer');
+
     if (data.status === 'none') {
       empty.style.display = 'block';
       bp.style.display = 'none';
+      footer.style.display = 'none';
     } else {
       empty.style.display = 'none';
       bp.style.display = 'block';
       bp.textContent = '';
       bp.appendChild(renderBlueprint(data));
+
+      // Show/hide footer based on status
+      if (data.status === 'pending') {
+        footer.textContent = 'Return to your terminal to approve or refine this blueprint.';
+        footer.style.display = 'block';
+      } else {
+        footer.textContent = 'Current API manifest. Submit a new prompt to modify.';
+        footer.style.display = 'block';
+      }
 
       // Render Mermaid diagrams
       try {

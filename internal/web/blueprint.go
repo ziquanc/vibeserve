@@ -43,6 +43,15 @@ type heuristicInfo struct {
 func (bh *BlueprintHandler) HandleBlueprint(w http.ResponseWriter, r *http.Request) {
 	bp := bh.engine.PendingBlueprint()
 	if bp == nil {
+		// No pending blueprint — show current manifest as "active" if one exists
+		m := bh.engine.Manifest()
+		if m != nil && len(m.Routes) > 0 {
+			writeConsoleJSON(w, http.StatusOK, blueprintResponse{
+				Status:   "active",
+				Manifest: m,
+			})
+			return
+		}
 		writeConsoleJSON(w, http.StatusOK, blueprintResponse{Status: "none"})
 		return
 	}
