@@ -274,7 +274,31 @@
     position: fixed;
     bottom: 0; left: 0; right: 0;
   }
+
+  /* ER Diagram */
+  .er-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 28px;
+    overflow-x: auto;
+  }
+  .er-section .mermaid { text-align: center; }
+  .er-section .mermaid svg { max-width: 100%; height: auto; }
+
+  /* Interactive highlight for routes */
+  .route-highlight { background: rgba(124,58,237,0.15) !important; }
+  .table-wrap.active-table { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+
+  .er-hint {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+  }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 </head>
 <body>
 
@@ -392,6 +416,13 @@ function renderBlueprint(data) {
   }
   frag.appendChild(header);
 
+  // ---- ER Diagram ----
+  var schemas = m.schemas || [];
+  if (schemas.length > 0) {
+    var erSec = renderERDiagram(schemas);
+    if (erSec) frag.appendChild(erSec);
+  }
+
   // ---- Breaking changes ----
   if (breaking.length > 0) {
     const sec = sectionEl('\u26A0 Breaking Changes');
@@ -476,8 +507,10 @@ function renderBlueprint(data) {
   const routes = m.routes || [];
   if (routes.length > 0) {
     const sec = sectionEl('Routes');
+    sec.id = 'routes-section';
     const wrap = el('div', { cls: 'table-wrap' });
     const tbl = el('table');
+    tbl.id = 'routes-table';
     const thead = el('thead');
     const hrow = el('tr');
     ['Method','Path','Script','Description'].forEach(h => hrow.appendChild(el('th', { text: h })));
@@ -555,11 +588,142 @@ function renderBlueprint(data) {
   return frag;
 }
 
+// ---- ER Diagram ----
+
+function buildMermaidER(schemas) {
+  if (!schemas || schemas.length === 0) return '';
+  var lines = ['erDiagram'];
+  // Entities
+  schemas.forEach(function(s) {
+    lines.push('    ' + s.table + ' {');
+    (s.columns || []).forEach(function(c) {
+      var mType = (c.type || 'TEXT').toLowerCase();
+      var attrs = [];
+      if (c.primary) attrs.push('PK');
+      if (c.unique) attrs.push('UK');
+      if (c.required) attrs.push('\"NOT NULL\"');
+      var suffix = attrs.length > 0 ? ' ' + attrs.join(',') : '';
+      lines.push('        ' + mType + ' ' + c.name + suffix);
+    });
+    lines.push('    }');
+  });
+  // Relationships from references
+  schemas.forEach(function(s) {
+    (s.columns || []).forEach(function(c) {
+      if (!c.references) return;
+      var ref = parseReference(c.references);
+      if (ref) {
+        lines.push('    ' + ref.table + ' ||--o{ ' + s.table + ' : "' + c.name + '"');
+      }
+    });
+  });
+  return lines.join('\n');
+}
+
+function parseReference(ref) {
+  // "table.column" or "table(column)"
+  var m = ref.match(/^(\w+)[.(](\w+)\)?$/);
+  if (m) return { table: m[1], column: m[2] };
+  return null;
+}
+
+function renderERDiagram(schemas) {
+  var code = buildMermaidER(schemas);
+  if (!code) return null;
+
+  var sec = sectionEl('Entity Relationship Diagram');
+  var wrap = el('div', { cls: 'er-section' });
+  var mermaidDiv = el('div', { cls: 'mermaid' });
+  mermaidDiv.textContent = code;
+  wrap.appendChild(mermaidDiv);
+  wrap.appendChild(el('div', { cls: 'er-hint', text: 'Click a table name to highlight related routes below.' }));
+  sec.appendChild(wrap);
+  return sec;
+}
+
+// Interactive click handler: highlight related routes when a table node is clicked
+function setupERInteraction(schemas, routes) {
+  // Wait for Mermaid to render SVG
+  setTimeout(function() {
+    var svg = document.querySelector('.er-section svg');
+    if (!svg) return;
+
+    // Find all entity labels in the SVG
+    var entityLabels = svg.querySelectorAll('.entityLabel, text');
+    entityLabels.forEach(function(label) {
+      var text = (label.textContent || '').trim().toLowerCase();
+      // Check if this text matches a table name
+      var matchedTable = schemas.find(function(s) {
+        return s.table.toLowerCase() === text;
+      });
+      if (matchedTable) {
+        label.style.cursor = 'pointer';
+        label.addEventListener('click', function() {
+          highlightRoutesForTable(matchedTable.table, routes);
+        });
+      }
+    });
+  }, 500);
+}
+
+function highlightRoutesForTable(tableName, routes) {
+  // Clear previous highlights
+  document.querySelectorAll('.route-highlight').forEach(function(el) {
+    el.classList.remove('route-highlight');
+  });
+  document.querySelectorAll('.table-wrap.active-table').forEach(function(el) {
+    el.classList.remove('active-table');
+  });
+
+  // Highlight schema table
+  document.querySelectorAll('.table-name').forEach(function(el) {
+    if (el.textContent.trim() === tableName) {
+      el.parentElement.classList.add('active-table');
+    }
+  });
+
+  // Highlight routes whose path starts with /tableName
+  var routeRows = document.querySelectorAll('#routes-table tbody tr');
+  routeRows.forEach(function(row) {
+    var pathCell = row.querySelector('.path-cell');
+    if (!pathCell) return;
+    var path = pathCell.textContent.trim();
+    // Match /tableName or /tableName/:id or /tableName/:id/action
+    if (path === '/' + tableName || path.startsWith('/' + tableName + '/')) {
+      row.classList.add('route-highlight');
+    }
+  });
+
+  // Scroll to routes section
+  var routesSec = document.getElementById('routes-section');
+  if (routesSec) routesSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#7C3AED',
+    primaryTextColor: '#E5E7EB',
+    lineColor: '#6B7280',
+    secondaryColor: '#1F2937',
+    tertiaryColor: '#374151'
+  }
+});
+
+var lastJSON = '';
+
 async function poll() {
   try {
     const res = await fetch('/_api/blueprint');
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    const text = await res.text();
+
+    // Skip re-render if data hasn't changed
+    if (text === lastJSON) return;
+    lastJSON = text;
+
+    const data = JSON.parse(text);
 
     document.getElementById('dot').className = 'dot live';
     document.getElementById('poll-label').textContent = 'live';
@@ -575,6 +739,18 @@ async function poll() {
       bp.style.display = 'block';
       bp.textContent = '';
       bp.appendChild(renderBlueprint(data));
+
+      // Render Mermaid diagrams
+      try {
+        await mermaid.run({ nodes: bp.querySelectorAll('.mermaid') });
+        // Setup click interaction after Mermaid renders
+        var m = data.manifest || {};
+        if (m.schemas && m.routes) {
+          setupERInteraction(m.schemas, m.routes);
+        }
+      } catch(e) {
+        console.warn('Mermaid render error:', e);
+      }
     }
   } catch (e) {
     document.getElementById('dot').className = 'dot';
