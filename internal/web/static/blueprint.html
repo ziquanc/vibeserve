@@ -339,6 +339,7 @@ function sectionEl(title) {
 
 function renderBlueprint(data) {
   const frag = document.createDocumentFragment();
+  const steps = data.steps || [];
   const m = data.manifest || {};
   const score = (data.heuristics && data.heuristics.score) || 0;
   const hints = (data.heuristics && data.heuristics.hints) || [];
@@ -347,6 +348,36 @@ function renderBlueprint(data) {
   const changes = data.changes || [];
   const breaking = changes.filter(c => c.breaking);
   const nonBreaking = changes.filter(c => !c.breaking);
+
+  // ---- Plan mode: show steps ----
+  if (steps.length > 0 && !m.name) {
+    const header = el('div', { cls: 'bp-header' });
+    const titleRow = el('div', { cls: 'bp-title-row' });
+    append(titleRow,
+      el('span', { cls: 'bp-title', text: 'Execution Plan' }),
+      el('span', { cls: 'score-badge score-yellow', text: steps.length + ' steps' })
+    );
+    header.appendChild(titleRow);
+    if (data.prompt) {
+      header.appendChild(el('div', { cls: 'bp-description', text: 'Prompt: ' + data.prompt }));
+    }
+    frag.appendChild(header);
+
+    const sec = sectionEl('Steps');
+    steps.forEach(function(step, i) {
+      const card = el('div', { cls: 'card' });
+      const row = el('div', { cls: 'change-row' });
+      const num = el('span', { cls: 'change-icon', text: (i + 1) + '.', style: 'color:var(--secondary);font-weight:700;font-family:var(--font-mono)' });
+      const body = el('div', { cls: 'change-detail', text: step });
+      append(row, num, body);
+      card.appendChild(row);
+      sec.appendChild(card);
+    });
+    frag.appendChild(sec);
+
+    frag.appendChild(el('div', { style: 'text-align:center;color:var(--muted);padding:20px;font-size:13px', text: 'Type "y" in the terminal to approve and execute, or type feedback to refine.' }));
+    return frag;
+  }
 
   // ---- Header ----
   const header = el('div', { cls: 'bp-header' });

@@ -20,6 +20,8 @@ func NewBlueprintHandler(eng *engine.Engine) *BlueprintHandler {
 type blueprintResponse struct {
 	Status     string         `json:"status"`
 	Manifest   any            `json:"manifest,omitempty"`
+	Steps      []string       `json:"steps,omitempty"`
+	Prompt     string         `json:"prompt,omitempty"`
 	Changes    []changeInfo   `json:"changes,omitempty"`
 	Heuristics *heuristicInfo `json:"heuristics,omitempty"`
 	Warnings   []string       `json:"warnings,omitempty"`
@@ -58,6 +60,8 @@ func (bh *BlueprintHandler) HandleBlueprint(w http.ResponseWriter, r *http.Reque
 	resp := blueprintResponse{
 		Status:   "pending",
 		Manifest: bp.Manifest,
+		Steps:    bp.Steps,
+		Prompt:   bp.Prompt,
 		Changes:  changes,
 		Heuristics: &heuristicInfo{
 			Score:       bp.Heuristics.Score,
