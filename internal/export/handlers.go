@@ -277,16 +277,54 @@ func GenerateHandlers(schemas []manifest.Schema, routes []manifest.Route, script
 
 	pm := NewPatternMatcher(schemas)
 
+	// Generate all handler bodies first so we know which imports are needed.
+	type handlerEntry struct {
+		route  manifest.Route
+		script manifest.Script
+		body   string
+		todos  []string
+	}
+	var handlers []handlerEntry
+	for _, route := range routes {
+		script, ok := scriptMap[route.Script]
+		if !ok {
+			continue
+		}
+		body, todos := pm.TranslateScript(script, route)
+		handlers = append(handlers, handlerEntry{route: route, script: script, body: body, todos: todos})
+	}
+
+	// Scan all generated bodies to determine needed imports.
+	allBodies := ""
+	for _, h := range handlers {
+		if len(h.todos) > 0 {
+			allBodies += "http.Error" // stub handlers use http.Error
+		} else {
+			allBodies += h.body
+		}
+	}
+	needsJSON := strings.Contains(allBodies, "json.")
+	needsChi := strings.Contains(allBodies, "chi.")
+	needsStrconv := strings.Contains(allBodies, "strconv.")
+	needsModel := strings.Contains(allBodies, "model.")
+
 	var b strings.Builder
 
 	b.WriteString("package handler\n\n")
 	b.WriteString("import (\n")
-	b.WriteString("\t\"context\"\n")
-	b.WriteString("\t\"encoding/json\"\n")
+	if needsJSON {
+		b.WriteString("\t\"encoding/json\"\n")
+	}
 	b.WriteString("\t\"net/http\"\n")
-	b.WriteString("\t\"strconv\"\n\n")
-	b.WriteString("\t\"github.com/go-chi/chi/v5\"\n\n")
-	b.WriteString("\t\"{{MODULE}}/internal/model\"\n")
+	if needsStrconv {
+		b.WriteString("\t\"strconv\"\n")
+	}
+	if needsChi {
+		b.WriteString("\n\t\"github.com/go-chi/chi/v5\"\n")
+	}
+	if needsModel {
+		b.WriteString("\n\t\"{{MODULE}}/internal/model\"\n")
+	}
 	b.WriteString("\t\"{{MODULE}}/internal/repository\"\n")
 	b.WriteString(")\n\n")
 
@@ -300,31 +338,40 @@ func GenerateHandlers(schemas []manifest.Schema, routes []manifest.Route, script
 	b.WriteString("\treturn &Handler{store: store}\n")
 	b.WriteString("}\n\n")
 
-	for _, route := range routes {
-		script, ok := scriptMap[route.Script]
-		if !ok {
-			continue
-		}
+	for _, entry := range handlers {
+		route := entry.route
+		script := entry.script
+		body := entry.body
+		todos := entry.todos
 		methodName := routeToMethodName(route)
-		body, todos := pm.TranslateScript(script, route)
 
 		b.WriteString(fmt.Sprintf("// %s handles %s %s\n", methodName, route.Method, route.Path))
+
 		if len(todos) > 0 {
-			b.WriteString("// NOTE: this handler has TODOs that require manual attention.\n")
-		}
-		b.WriteString(fmt.Sprintf("func (h *Handler) %s(w http.ResponseWriter, r *http.Request) {\n", methodName))
-		b.WriteString("\tctx := r.Context()\n")
-
-		// Indent the body by one tab.
-		for _, line := range strings.Split(body, "\n") {
-			if line == "" {
-				b.WriteString("\n")
-			} else {
-				b.WriteString("\t" + line + "\n")
+			// Handler has untranslated patterns — emit a compilable stub
+			// with the original Tengo code as comments. Partially translated
+			// code with TODO gaps produces broken Go (mismatched braces,
+			// undefined variables), so a clean stub is safer.
+			b.WriteString(fmt.Sprintf("func (h *Handler) %s(w http.ResponseWriter, r *http.Request) {\n", methodName))
+			b.WriteString("\t// TODO: Implement this handler. Original Tengo logic:\n")
+			for _, line := range strings.Split(script.Code, "\n") {
+				b.WriteString(fmt.Sprintf("\t//   %s\n", line))
 			}
+			b.WriteString("\thttp.Error(w, \"not implemented\", http.StatusNotImplemented)\n")
+			b.WriteString("}\n\n")
+		} else {
+			// Fully translated — emit the generated Go code.
+			b.WriteString(fmt.Sprintf("func (h *Handler) %s(w http.ResponseWriter, r *http.Request) {\n", methodName))
+			b.WriteString("\tctx := r.Context()\n")
+			for _, line := range strings.Split(body, "\n") {
+				if line == "" {
+					b.WriteString("\n")
+				} else {
+					b.WriteString("\t" + line + "\n")
+				}
+			}
+			b.WriteString("}\n\n")
 		}
-
-		b.WriteString("}\n\n")
 	}
 
 	return b.String()
