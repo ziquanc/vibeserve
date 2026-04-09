@@ -142,5 +142,17 @@ func NewBridge(program *tea.Program, bus *engine.Bus) *Bridge {
 		}
 	})
 
+	bus.Subscribe(engine.EventBlueprintProposed, func(e engine.Event) {
+		if bp, ok := e.Data.(engine.BlueprintInfo); ok {
+			program.Send(BlueprintProposedMsg{Blueprint: &bp})
+		}
+	})
+
+	bus.Subscribe(engine.EventBlueprintRefined, func(e engine.Event) {
+		if bp, ok := e.Data.(engine.BlueprintInfo); ok {
+			program.Send(BlueprintProposedMsg{Blueprint: &bp})
+		}
+	})
+
 	return b
 }
