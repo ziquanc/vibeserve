@@ -33,15 +33,20 @@ func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub, blue
 
 	// Blueprint preview
 	mux.HandleFunc("GET /_api/blueprint", blueprint.HandleBlueprint)
-	mux.HandleFunc("GET /_blueprint", func(w http.ResponseWriter, r *http.Request) {
-		data, err := StaticFS.ReadFile("static/blueprint.html")
-		if err != nil {
-			http.Error(w, "blueprint page not found", 404)
-			return
+	mux.HandleFunc("GET /_api/openapi.yaml", blueprint.HandleOpenAPI)
+	serveStaticPage := func(filename string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			data, err := StaticFS.ReadFile("static/" + filename)
+			if err != nil {
+				http.Error(w, "page not found", 404)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(data)
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(data)
-	})
+	}
+	mux.HandleFunc("GET /_blueprint", serveStaticPage("blueprint.html"))
+	mux.HandleFunc("GET /_swagger", serveStaticPage("swagger.html"))
 
 	// Fall through to the existing trie-based API handler
 	mux.Handle("/", apiHandler)

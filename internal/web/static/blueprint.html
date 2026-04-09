@@ -594,25 +594,30 @@ function buildMermaidER(schemas) {
   var lines = ['erDiagram'];
   // Entities
   schemas.forEach(function(s) {
-    lines.push('    ' + s.table + ' {');
+    var tbl = (s.table || 'table').replace(/[^a-zA-Z0-9_]/g, '');
+    lines.push('    ' + tbl + ' {');
     (s.columns || []).forEach(function(c) {
-      var mType = (c.type || 'TEXT').toLowerCase();
-      var attrs = [];
-      if (c.primary) attrs.push('PK');
-      if (c.unique) attrs.push('UK');
-      if (c.required) attrs.push('\"NOT NULL\"');
-      var suffix = attrs.length > 0 ? ' ' + attrs.join(',') : '';
-      lines.push('        ' + mType + ' ' + c.name + suffix);
+      var mType = (c.type || 'text').toLowerCase().replace(/[^a-z0-9]/g, '');
+      var colName = (c.name || 'col').replace(/[^a-zA-Z0-9_]/g, '');
+      var attr = '';
+      if (c.primary) attr = 'PK';
+      else if (c.unique) attr = 'UK';
+      else if (c.references) attr = 'FK';
+      var suffix = attr ? ' ' + attr : '';
+      lines.push('        ' + mType + ' ' + colName + suffix);
     });
     lines.push('    }');
   });
   // Relationships from references
   schemas.forEach(function(s) {
+    var srcTbl = (s.table || '').replace(/[^a-zA-Z0-9_]/g, '');
     (s.columns || []).forEach(function(c) {
       if (!c.references) return;
       var ref = parseReference(c.references);
       if (ref) {
-        lines.push('    ' + ref.table + ' ||--o{ ' + s.table + ' : "' + c.name + '"');
+        var refTbl = ref.table.replace(/[^a-zA-Z0-9_]/g, '');
+        var colName = (c.name || '').replace(/[^a-zA-Z0-9_]/g, '');
+        lines.push('    ' + refTbl + ' ||--o{ ' + srcTbl + ' : ' + colName);
       }
     });
   });

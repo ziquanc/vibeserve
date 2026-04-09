@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
+	"github.com/vibeserve/vibeserve/internal/export"
 	"github.com/vibeserve/vibeserve/internal/manifest"
 )
 
@@ -81,4 +82,18 @@ func (bh *BlueprintHandler) HandleBlueprint(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeConsoleJSON(w, http.StatusOK, resp)
+}
+
+// HandleOpenAPI serves GET /_api/openapi.yaml — generates OpenAPI spec from current manifest.
+func (bh *BlueprintHandler) HandleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	m := bh.engine.Manifest()
+	if m == nil || len(m.Routes) == 0 {
+		http.Error(w, "No manifest loaded. Create an API first.", http.StatusNotFound)
+		return
+	}
+
+	yaml := export.GenerateOpenAPI(m)
+	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Write([]byte(yaml))
 }

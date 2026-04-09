@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VibeServe API Docs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+<style>
+  body { margin: 0; background: #1a1a2e; }
+  #header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: #1F2937;
+    border-bottom: 1px solid #374151;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #E5E7EB;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .logo {
+    width: 28px; height: 28px;
+    background: #7C3AED;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; color: #fff;
+  }
+  .muted { color: #9CA3AF; font-weight: 400; }
+  /* Dark theme overrides for Swagger UI */
+  .swagger-ui { background: #111827; }
+  .swagger-ui .topbar { display: none; }
+  .swagger-ui .info .title { color: #E5E7EB; }
+  .swagger-ui .info p, .swagger-ui .info li { color: #9CA3AF; }
+  .swagger-ui .scheme-container { background: #1F2937; box-shadow: none; }
+  .swagger-ui .opblock-tag { color: #E5E7EB; border-bottom-color: #374151; }
+  .swagger-ui .opblock { border-color: #374151; background: #1F2937; }
+  .swagger-ui .opblock .opblock-summary { border-color: #374151; }
+  .swagger-ui .opblock .opblock-summary-description { color: #9CA3AF; }
+  .swagger-ui .opblock-description-wrapper p { color: #9CA3AF; }
+  .swagger-ui .response-col_status { color: #E5E7EB; }
+  .swagger-ui .response-col_description { color: #9CA3AF; }
+  .swagger-ui table thead tr th { color: #9CA3AF; border-bottom-color: #374151; }
+  .swagger-ui table tbody tr td { color: #E5E7EB; border-bottom-color: #374151; }
+  .swagger-ui .model-title { color: #E5E7EB; }
+  .swagger-ui .model { color: #9CA3AF; }
+  .swagger-ui .prop-type { color: #06B6D4; }
+  .swagger-ui section.models { border-color: #374151; }
+  .swagger-ui section.models h4 { color: #E5E7EB; border-bottom-color: #374151; }
+  .swagger-ui .btn { border-color: #374151; color: #E5E7EB; }
+  .swagger-ui select { background: #1F2937; color: #E5E7EB; border-color: #374151; }
+  .swagger-ui input[type=text] { background: #1F2937; color: #E5E7EB; border-color: #374151; }
+  .swagger-ui .parameter__name { color: #E5E7EB; }
+  .swagger-ui .parameter__type { color: #06B6D4; }
+  #empty {
+    text-align: center;
+    padding: 80px 24px;
+    color: #9CA3AF;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+</style>
+</head>
+<body>
+<div id="header">
+  <div class="logo">V</div>
+  <span>VibeServe</span>
+  <span class="muted">/ API Documentation</span>
+</div>
+<div id="swagger-ui"></div>
+<div id="empty" style="display:none">
+  <p style="font-size:48px;margin-bottom:16px">&#128203;</p>
+  <p style="font-size:15px">No API routes defined yet. Create an API in the terminal first.</p>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+  fetch('/_api/openapi.yaml').then(function(res) {
+    if (!res.ok) {
+      document.getElementById('swagger-ui').style.display = 'none';
+      document.getElementById('empty').style.display = 'block';
+      return;
+    }
+    return res.text();
+  }).then(function(spec) {
+    if (!spec) return;
+    SwaggerUIBundle({
+      spec: jsyaml ? jsyaml.load(spec) : spec,
+      dom_id: '#swagger-ui',
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: 'BaseLayout',
+      deepLinking: true,
+      defaultModelsExpandDepth: 1,
+    });
+  }).catch(function() {
+    // jsyaml might not be available — try as URL instead
+    SwaggerUIBundle({
+      url: '/_api/openapi.yaml',
+      dom_id: '#swagger-ui',
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: 'BaseLayout',
+      deepLinking: true,
+      defaultModelsExpandDepth: 1,
+    });
+  });
+</script>
+</body>
+</html>
