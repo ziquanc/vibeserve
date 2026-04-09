@@ -74,19 +74,12 @@ func (e *Engine) History() []llm.Message {
 	return e.history
 }
 
-// Apply processes a user prompt through the full pipeline:
+// Apply processes a user prompt through the full pipeline and PROPOSES a blueprint:
 // 1. Emit UserPromptReceived
-// 2. Call LLM to generate manifest
-// 3. Validate the manifest
-// 4. Diff against current manifest
-// 5. Snapshot before schema changes
-// 6. Apply schema migrations
-// 7. Update routes and scripts
-// 8. Seed new tables
-// 9. Save manifest to disk
-func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error) {
-	result := &ApplyResult{}
-
+// 2. Call LLM to generate manifest (with planning if needed)
+// 3. Propose the resulting manifest (validate, diff, score, store as pending)
+// 4. Emit EventBlueprintProposed — actual application happens via ApproveBlueprint()
+func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, error) {
 	// 1. Emit UserPromptReceived
 	e.bus.Publish(Event{Type: EventUserPromptReceived, Data: prompt})
 
@@ -107,29 +100,37 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 				// Not a plan — might be a conversational response to a question
 				e.history = append(e.history, llm.Message{Role: "user", Content: prompt})
 				e.history = append(e.history, llm.Message{Role: "assistant", Content: chatErr.Text})
-				result.ChatResponse = chatErr.Text
-				return result, nil
+				return &BlueprintResult{ChatResponse: chatErr.Text}, nil
 			}
 		} else {
 			return nil, fmt.Errorf("planning failed: %w", planErr)
 		}
 	}
 
-	// If LLM returned a manifest directly (simple request), apply it directly
+	// If LLM returned a manifest directly (simple request), propose it directly
 	if planManifest != nil && len(steps) == 0 {
 		log.Printf("[engine] LLM returned manifest directly (no planning needed)")
-		return e.applyManifest(ctx, prompt, planManifest, result)
+		bp, err := e.proposeBlueprint(planManifest)
+		if err != nil {
+			return nil, err
+		}
+		e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
+		return &BlueprintResult{Blueprint: bp}, nil
 	}
 
 	// If no steps parsed, fall back to single-step direct generation
 	if len(steps) == 0 {
 		log.Printf("[engine] no plan created, falling back to direct generation")
-		return e.directApply(ctx, prompt, result)
+		return e.directApply(ctx, prompt)
 	}
 
-	// 3. Execute plan step by step
+	// 3. Execute plan step by step — accumulate the final manifest, then propose once
 	log.Printf("[engine] plan created: %d steps", len(steps))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
+
+	// Start from the current manifest; each step builds on the previous step's output
+	currentManifest := e.manifest
+	var finalManifest *manifest.Manifest
 
 	for i, step := range steps {
 		stepNum := i + 1
@@ -138,10 +139,10 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 			Index: stepNum, Total: len(steps), Description: step,
 		}})
 
-		// Ask LLM to implement this step
+		// Ask LLM to implement this step, building on the previous step's manifest
 		stepPrompt := fmt.Sprintf("Implement step %d of %d: %s\n\nIMPORTANT: Output ONLY the complete updated manifest JSON. Include ALL existing tables, routes, scripts, and seeds plus the new additions for this step.", stepNum, len(steps), step)
 
-		newManifest, err := e.provider.Generate(ctx, e.manifest, stepPrompt, e.history)
+		newManifest, err := e.provider.Generate(ctx, currentManifest, stepPrompt, e.history)
 		if err != nil {
 			if chatErr, ok := err.(*llm.ChatOnlyError); ok {
 				log.Printf("[engine] step %d returned text instead of JSON, skipping: %s", stepNum, chatErr.Text[:min(100, len(chatErr.Text))])
@@ -150,36 +151,29 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*ApplyResult, error)
 			return nil, fmt.Errorf("step %d/%d failed: %w", stepNum, len(steps), err)
 		}
 
-		// Apply this step's manifest
-		stepResult, err := e.applyManifest(ctx, step, newManifest, &ApplyResult{})
-		if err != nil {
-			log.Printf("[engine] step %d failed to apply: %v", stepNum, err)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Step %d failed: %v", stepNum, err))
-			continue
-		}
-
-		// Merge step results
-		result.Changes = append(result.Changes, stepResult.Changes...)
-		result.Warnings = append(result.Warnings, stepResult.Warnings...)
-		result.Manifest = stepResult.Manifest
-
-		// Build step summary
-		var changeSummaries []string
-		for _, c := range stepResult.Changes {
-			changeSummaries = append(changeSummaries, c.Detail)
-		}
+		// Advance current manifest for the next step
+		currentManifest = newManifest
+		finalManifest = newManifest
 
 		e.bus.Publish(Event{Type: EventStepCompleted, Data: StepInfo{
 			Index: stepNum, Total: len(steps), Description: step,
-			Changes: changeSummaries,
 		}})
 	}
 
-	return result, nil
+	if finalManifest == nil {
+		return nil, fmt.Errorf("all plan steps failed to produce a manifest")
+	}
+
+	bp, err := e.proposeBlueprint(finalManifest)
+	if err != nil {
+		return nil, err
+	}
+	e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
+	return &BlueprintResult{Blueprint: bp}, nil
 }
 
-// directApply does a single LLM call without planning (fallback).
-func (e *Engine) directApply(ctx context.Context, prompt string, result *ApplyResult) (*ApplyResult, error) {
+// directApply does a single LLM call without planning (fallback) and proposes the result.
+func (e *Engine) directApply(ctx context.Context, prompt string) (*BlueprintResult, error) {
 	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: prompt})
 
 	newManifest, err := e.provider.Generate(ctx, e.manifest, prompt, e.history)
@@ -187,13 +181,17 @@ func (e *Engine) directApply(ctx context.Context, prompt string, result *ApplyRe
 		if chatErr, ok := err.(*llm.ChatOnlyError); ok {
 			e.history = append(e.history, llm.Message{Role: "user", Content: prompt})
 			e.history = append(e.history, llm.Message{Role: "assistant", Content: chatErr.Text})
-			result.ChatResponse = chatErr.Text
-			return result, nil
+			return &BlueprintResult{ChatResponse: chatErr.Text}, nil
 		}
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
-	return e.applyManifest(ctx, prompt, newManifest, result)
+	bp, err := e.proposeBlueprint(newManifest)
+	if err != nil {
+		return nil, err
+	}
+	e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
+	return &BlueprintResult{Blueprint: bp}, nil
 }
 
 // applyManifest validates, diffs, and applies a new manifest.

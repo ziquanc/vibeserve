@@ -281,14 +281,22 @@ func (m RootModel) applyPrompt(prompt string) tea.Cmd {
 	eng := m.engine
 	ctx := m.ctx
 	return func() (msg tea.Msg) {
-		// Recover from panics so TUI never gets stuck
 		defer func() {
 			if r := recover(); r != nil {
 				msg = ApplyResultMsg{Err: fmt.Errorf("internal error: %v", r)}
 			}
 		}()
 		result, err := eng.Apply(ctx, prompt)
-		return ApplyResultMsg{Result: result, Err: err}
+		if err != nil {
+			return ApplyResultMsg{Err: err}
+		}
+		if result.Blueprint != nil {
+			return BlueprintProposedMsg{Blueprint: result.Blueprint}
+		}
+		if result.ChatResponse != "" {
+			return ApplyResultMsg{Result: &engine.ApplyResult{ChatResponse: result.ChatResponse}}
+		}
+		return ApplyResultMsg{Err: fmt.Errorf("unexpected empty result")}
 	}
 }
 

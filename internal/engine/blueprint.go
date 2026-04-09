@@ -47,13 +47,27 @@ func (e *Engine) CancelBlueprint() {
 
 // proposeBlueprint generates a blueprint from a new manifest without applying it.
 func (e *Engine) proposeBlueprint(newManifest *manifest.Manifest) (*BlueprintInfo, error) {
+	if e.bus != nil {
+		e.bus.Publish(Event{Type: EventLLMRequestCompleted, Data: newManifest})
+	}
+
 	repairManifest(newManifest, e.manifest)
 
+	if e.bus != nil {
+		e.bus.Publish(Event{Type: EventManifestGenerated, Data: newManifest})
+	}
+
 	if err := manifest.Validate(newManifest); err != nil {
+		if e.bus != nil {
+			e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
+		}
 		return nil, fmt.Errorf("manifest validation failed: %w", err)
 	}
 
 	changes := manifest.Diff(e.manifest, newManifest)
+	if e.bus != nil {
+		e.bus.Publish(Event{Type: EventManifestDiffComputed, Data: changes})
+	}
 	heuristics := ScoreHeuristics(newManifest)
 	summary := formatChangeSummaryFromChanges(changes)
 

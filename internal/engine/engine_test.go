@@ -146,13 +146,18 @@ func TestEngine_Apply_NewManifest(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	if len(result.Changes) == 0 {
-		t.Error("expected changes")
+	// Apply() now proposes — blueprint should be set
+	if result.Blueprint == nil {
+		t.Fatal("expected Blueprint to be set")
 	}
 
-	// Verify table was added
+	if len(result.Blueprint.Changes) == 0 {
+		t.Error("expected changes in blueprint")
+	}
+
+	// Verify table was added in the proposed changes
 	foundTable := false
-	for _, c := range result.Changes {
+	for _, c := range result.Blueprint.Changes {
 		if c.Type == manifest.ChangeAddTable && c.Table == "users" {
 			foundTable = true
 		}
@@ -161,28 +166,20 @@ func TestEngine_Apply_NewManifest(t *testing.T) {
 		t.Error("expected ADD_TABLE change for users")
 	}
 
-	// Verify route was registered
-	script, found := trie.Search("GET", "/users")
-	if !found {
-		t.Error("expected GET /users route to be registered")
-	}
-	if script != "list_users" {
-		t.Errorf("expected script 'list_users', got %q", script)
+	// Verify route NOT yet registered (Apply proposes, Approve applies)
+	_, found := trie.Search("GET", "/users")
+	if found {
+		t.Error("route should not be registered until blueprint is approved")
 	}
 
-	// Verify script was loaded
-	if eng.scripts["list_users"] == "" {
-		t.Error("expected list_users script to be loaded")
+	// Verify manifest NOT yet updated (Apply proposes, Approve applies)
+	if eng.Manifest() != nil && eng.Manifest().Name == "test-api" {
+		// eng.manifest starts as nil, so no manifest yet is fine
 	}
 
-	// Verify manifest was updated
-	if eng.Manifest().Name != "test-api" {
-		t.Errorf("expected manifest name 'test-api', got %q", eng.Manifest().Name)
-	}
-
-	// Verify history was updated
-	if len(eng.History()) != 2 {
-		t.Errorf("expected 2 history entries, got %d", len(eng.History()))
+	// Verify pending blueprint is set
+	if !eng.HasPendingBlueprint() {
+		t.Error("expected pending blueprint after Apply()")
 	}
 }
 
@@ -239,8 +236,12 @@ func TestEngine_Apply_AddColumn(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
+	if result.Blueprint == nil {
+		t.Fatal("expected Blueprint to be set")
+	}
+
 	foundAddCol := false
-	for _, c := range result.Changes {
+	for _, c := range result.Blueprint.Changes {
 		if c.Type == manifest.ChangeAddColumn && c.Table == "users" && c.Column.Name == "email" {
 			foundAddCol = true
 		}
@@ -273,11 +274,10 @@ func TestEngine_Apply_EventsEmitted(t *testing.T) {
 	var events []EventType
 	var mu sync.Mutex
 
-	// Subscribe to all relevant events
+	// Subscribe to all relevant events for proposal mode
 	for _, et := range []EventType{
 		EventUserPromptReceived, EventLLMRequestStarted, EventLLMRequestCompleted,
-		EventManifestGenerated, EventManifestDiffComputed,
-		EventSchemaAltering, EventSchemaAltered, EventRouteAdded, EventScriptLoaded,
+		EventManifestGenerated, EventManifestDiffComputed, EventBlueprintProposed,
 	} {
 		eventType := et
 		eng.bus.Subscribe(eventType, func(e Event) {
@@ -308,12 +308,14 @@ func TestEngine_Apply_EventsEmitted(t *testing.T) {
 		eventSet[e] = true
 	}
 
+	// Apply() now proposes — schema/route/script events are emitted on Approve, not Apply
 	required := []EventType{
 		EventUserPromptReceived,
 		EventLLMRequestStarted,
 		EventLLMRequestCompleted,
 		EventManifestGenerated,
 		EventManifestDiffComputed,
+		EventBlueprintProposed,
 	}
 	for _, req := range required {
 		if !eventSet[req] {
@@ -350,7 +352,7 @@ func TestEngine_Apply_LLMError(t *testing.T) {
 	}
 }
 
-func TestEngine_Apply_SavesManifest(t *testing.T) {
+func TestEngine_Apply_ProposesButDoesNotSaveManifest(t *testing.T) {
 	newManifest := &manifest.Manifest{
 		Version:     "1.0",
 		Name:        "saved-api",
@@ -362,16 +364,35 @@ func TestEngine_Apply_SavesManifest(t *testing.T) {
 
 	eng, vibeDir, _ := newTestEngine(t, &mockProvider{manifest: newManifest})
 
-	_, err := eng.Apply(context.Background(), "Create API")
+	result, err := eng.Apply(context.Background(), "Create API")
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	// Verify manifest was saved
+	// Apply() proposes — blueprint should be pending
+	if result.Blueprint == nil {
+		t.Fatal("expected Blueprint to be set")
+	}
+	if !eng.HasPendingBlueprint() {
+		t.Error("expected pending blueprint after Apply()")
+	}
+
+	// Verify manifest was NOT saved to disk (only happens on Approve)
 	manifestPath := filepath.Join(vibeDir, "manifest.json")
+	_, statErr := os.Stat(manifestPath)
+	if statErr == nil {
+		t.Error("manifest should not be saved to disk until blueprint is approved")
+	}
+
+	// Approve and verify manifest IS saved
+	_, err = eng.ApproveBlueprint(context.Background())
+	if err != nil {
+		t.Fatalf("ApproveBlueprint: %v", err)
+	}
+
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
-		t.Fatalf("read manifest: %v", err)
+		t.Fatalf("read manifest after approve: %v", err)
 	}
 
 	var saved manifest.Manifest

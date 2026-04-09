@@ -102,15 +102,18 @@ func TestIntegration_EngineEvolvesManifest(t *testing.T) {
 		StoreOpener: storeOpener,
 	})
 
-	// ── 7. Apply the prompt (mock LLM returns v2) ─────────────────────────────
-	result, err := eng.Apply(context.Background(), "add a customers table with loyalty tiers")
+	// ── 7. Apply the prompt (mock LLM returns v2) — now proposes a blueprint ──
+	blueprintResult, err := eng.Apply(context.Background(), "add a customers table with loyalty tiers")
 	if err != nil {
 		t.Fatalf("engine.Apply: %v", err)
 	}
+	if blueprintResult.Blueprint == nil {
+		t.Fatal("expected Blueprint to be set after Apply()")
+	}
 
-	// ── 8. Verify changes include ADD_TABLE, ADD_ROUTE, ADD_SCRIPT ────────────
+	// ── 8. Verify proposed changes include ADD_TABLE, ADD_ROUTE, ADD_SCRIPT ───
 	var foundAddTable, foundAddRoute, foundAddScript bool
-	for _, c := range result.Changes {
+	for _, c := range blueprintResult.Blueprint.Changes {
 		switch c.Type {
 		case manifest.ChangeAddTable:
 			if c.Table == "customers" {
@@ -135,6 +138,12 @@ func TestIntegration_EngineEvolvesManifest(t *testing.T) {
 	}
 	if !foundAddScript {
 		t.Error("expected ADD_SCRIPT change for list_customers")
+	}
+
+	// ── 8b. Approve the blueprint to actually apply the changes ───────────────
+	_, err = eng.ApproveBlueprint(context.Background())
+	if err != nil {
+		t.Fatalf("engine.ApproveBlueprint: %v", err)
 	}
 
 	// ── 9. Build HTTP handler using the (now-mutated) trie and scripts ─────────
