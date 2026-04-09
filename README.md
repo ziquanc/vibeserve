@@ -187,6 +187,15 @@ VibeServe stores everything in a `.vibe/` directory:
 - `state.db` — SQLite database with your data
 - `snapshots/` — database snapshots for undo
 
+## Privacy
+
+VibeServe runs entirely on your machine. There is no server, no account, no telemetry.
+
+- **Your code stays local.** Manifests, database, scripts — all in `.vibe/` on your disk.
+- **No data collection.** VibeServe does not phone home, track usage, or send analytics.
+- **LLM calls go directly to your provider.** Your prompts are sent to the API you configured (Claude, OpenAI-compatible, or local Ollama) — VibeServe never proxies or stores them.
+- **Offline mode.** Use Ollama with a local model and nothing leaves your machine at all.
+
 ## Contributing
 
 ```bash
