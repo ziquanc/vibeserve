@@ -116,3 +116,25 @@ type LogMsg struct {
 	Level   string
 	Message string
 }
+
+// BlueprintProposedMsg is sent when the engine proposes a blueprint for review.
+type BlueprintProposedMsg struct {
+	Blueprint *engine.BlueprintInfo
+}
+
+// BlueprintApproveMsg is sent when the user approves the pending blueprint.
+type BlueprintApproveMsg struct{}
+
+// BlueprintRefineMsg is sent when the user wants to refine the blueprint.
+type BlueprintRefineMsg struct {
+	Feedback string
+}
+
+// BlueprintCancelMsg is sent when the user cancels the pending blueprint.
+type BlueprintCancelMsg struct{}
+
+// BlueprintAppliedMsg is sent when the approved blueprint has been applied.
+type BlueprintAppliedMsg struct {
+	Result *engine.ApplyResult
+	Err    error
+}

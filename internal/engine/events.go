@@ -33,6 +33,10 @@ const (
 	EventPlanCreated  EventType = "PLAN_CREATED"  // Data: PlanInfo
 	EventStepStarted  EventType = "STEP_STARTED"  // Data: StepInfo
 	EventStepCompleted EventType = "STEP_COMPLETED" // Data: StepInfo
+
+	EventBlueprintProposed EventType = "BLUEPRINT_PROPOSED"
+	EventBlueprintRefined  EventType = "BLUEPRINT_REFINED"
+	EventBlueprintApproved EventType = "BLUEPRINT_APPROVED"
 )
 
 // PlanInfo describes the execution plan.
