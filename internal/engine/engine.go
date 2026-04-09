@@ -124,50 +124,17 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 		return e.directApply(ctx, prompt)
 	}
 
-	// 3. Execute plan step by step — accumulate the final manifest, then propose once
-	log.Printf("[engine] plan created: %d steps", len(steps))
+	// 3. Propose the plan as a blueprint — steps are NOT executed yet.
+	// Execution happens in ApproveBlueprint() after the user confirms.
+	log.Printf("[engine] plan created: %d steps — proposing for review", len(steps))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
 
-	// Start from the current manifest; each step builds on the previous step's output
-	currentManifest := e.manifest
-	var finalManifest *manifest.Manifest
-
-	for i, step := range steps {
-		stepNum := i + 1
-		log.Printf("[engine] executing step %d/%d: %s", stepNum, len(steps), step)
-		e.bus.Publish(Event{Type: EventStepStarted, Data: StepInfo{
-			Index: stepNum, Total: len(steps), Description: step,
-		}})
-
-		// Ask LLM to implement this step, building on the previous step's manifest
-		stepPrompt := fmt.Sprintf("Implement step %d of %d: %s\n\nIMPORTANT: Output ONLY the complete updated manifest JSON. Include ALL existing tables, routes, scripts, and seeds plus the new additions for this step.", stepNum, len(steps), step)
-
-		newManifest, err := e.provider.Generate(ctx, currentManifest, stepPrompt, e.history)
-		if err != nil {
-			if chatErr, ok := err.(*llm.ChatOnlyError); ok {
-				log.Printf("[engine] step %d returned text instead of JSON, skipping: %s", stepNum, chatErr.Text[:min(100, len(chatErr.Text))])
-				continue
-			}
-			return nil, fmt.Errorf("step %d/%d failed: %w", stepNum, len(steps), err)
-		}
-
-		// Advance current manifest for the next step
-		currentManifest = newManifest
-		finalManifest = newManifest
-
-		e.bus.Publish(Event{Type: EventStepCompleted, Data: StepInfo{
-			Index: stepNum, Total: len(steps), Description: step,
-		}})
+	bp := &BlueprintInfo{
+		Steps:   steps,
+		Prompt:  prompt,
+		Summary: fmt.Sprintf("Plan: %d steps to execute", len(steps)),
 	}
-
-	if finalManifest == nil {
-		return nil, fmt.Errorf("all plan steps failed to produce a manifest")
-	}
-
-	bp, err := e.proposeBlueprint(finalManifest)
-	if err != nil {
-		return nil, err
-	}
+	e.pendingBlueprint = bp
 	e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
 	return &BlueprintResult{Blueprint: bp}, nil
 }

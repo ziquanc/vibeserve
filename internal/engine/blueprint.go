@@ -3,8 +3,10 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
+	"github.com/vibeserve/vibeserve/internal/llm"
 	"github.com/vibeserve/vibeserve/internal/manifest"
 )
 
@@ -22,6 +24,11 @@ type BlueprintInfo struct {
 	Warnings   []string
 	Summary    string
 	Heuristics HeuristicResult
+
+	// Plan-mode fields: when the LLM returns a multi-step plan,
+	// the blueprint stores the steps and defers execution until approval.
+	Steps  []string // non-empty when this is a plan (no manifest yet)
+	Prompt string   // original user prompt (needed for step execution on approve)
 }
 
 // BlueprintResult is returned by Apply() in proposal mode.
@@ -103,6 +110,8 @@ func (e *Engine) proposeBlueprint(newManifest *manifest.Manifest) (*BlueprintInf
 }
 
 // ApproveBlueprint applies the pending blueprint.
+// If the blueprint has Steps (plan-mode), executes steps via LLM first.
+// If it has a Manifest (direct-mode), applies immediately.
 func (e *Engine) ApproveBlueprint(ctx context.Context) (*ApplyResult, error) {
 	if e.pendingBlueprint == nil {
 		return nil, fmt.Errorf("no pending blueprint to approve")
@@ -115,8 +124,85 @@ func (e *Engine) ApproveBlueprint(ctx context.Context) (*ApplyResult, error) {
 		e.bus.Publish(Event{Type: EventBlueprintApproved, Data: *bp})
 	}
 
+	// Plan-mode: execute steps to build the manifest, then apply.
+	if len(bp.Steps) > 0 {
+		return e.executePlanSteps(ctx, bp.Steps, bp.Prompt)
+	}
+
+	// Direct-mode: manifest is already generated, just apply.
 	result := &ApplyResult{}
 	return e.applyManifest(ctx, "", bp.Manifest, result)
+}
+
+// executePlanSteps runs LLM for each step, accumulates the manifest, then applies.
+func (e *Engine) executePlanSteps(ctx context.Context, steps []string, prompt string) (*ApplyResult, error) {
+	currentManifest := e.manifest
+	var finalManifest *manifest.Manifest
+	result := &ApplyResult{}
+
+	for i, step := range steps {
+		stepNum := i + 1
+		log.Printf("[engine] executing step %d/%d: %s", stepNum, len(steps), step)
+		if e.bus != nil {
+			e.bus.Publish(Event{Type: EventStepStarted, Data: StepInfo{
+				Index: stepNum, Total: len(steps), Description: step,
+			}})
+		}
+
+		stepPrompt := fmt.Sprintf("Implement step %d of %d: %s\n\nIMPORTANT: Output ONLY the complete updated manifest JSON. Include ALL existing tables, routes, scripts, and seeds plus the new additions for this step.", stepNum, len(steps), step)
+
+		newManifest, err := e.provider.Generate(ctx, currentManifest, stepPrompt, e.history)
+		if err != nil {
+			if chatErr, ok := err.(*llm.ChatOnlyError); ok {
+				log.Printf("[engine] step %d returned text instead of JSON, skipping: %s", stepNum, chatErr.Text[:min(100, len(chatErr.Text))])
+				if e.bus != nil {
+					e.bus.Publish(Event{Type: EventStepCompleted, Data: StepInfo{
+						Index: stepNum, Total: len(steps), Description: step,
+						Changes: []string{"skipped (text response)"},
+					}})
+				}
+				continue
+			}
+			return nil, fmt.Errorf("step %d/%d failed: %w", stepNum, len(steps), err)
+		}
+
+		// Apply this step's manifest immediately
+		stepResult, err := e.applyManifest(ctx, step, newManifest, &ApplyResult{})
+		if err != nil {
+			log.Printf("[engine] step %d failed to apply: %v", stepNum, err)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Step %d failed: %v", stepNum, err))
+			if e.bus != nil {
+				e.bus.Publish(Event{Type: EventStepCompleted, Data: StepInfo{
+					Index: stepNum, Total: len(steps), Description: step,
+					Changes: []string{fmt.Sprintf("failed: %v", err)},
+				}})
+			}
+			continue
+		}
+
+		currentManifest = stepResult.Manifest
+		finalManifest = stepResult.Manifest
+		result.Changes = append(result.Changes, stepResult.Changes...)
+		result.Warnings = append(result.Warnings, stepResult.Warnings...)
+		result.Manifest = stepResult.Manifest
+
+		var changeSummaries []string
+		for _, c := range stepResult.Changes {
+			changeSummaries = append(changeSummaries, c.Detail)
+		}
+		if e.bus != nil {
+			e.bus.Publish(Event{Type: EventStepCompleted, Data: StepInfo{
+				Index: stepNum, Total: len(steps), Description: step,
+				Changes: changeSummaries,
+			}})
+		}
+	}
+
+	if finalManifest == nil {
+		return nil, fmt.Errorf("all plan steps failed to produce a manifest")
+	}
+
+	return result, nil
 }
 
 // RefineBlueprint sends feedback to LLM and generates a new blueprint.
@@ -159,6 +245,15 @@ func (e *Engine) RefineBlueprint(ctx context.Context, feedback string) (*Bluepri
 // FormatBlueprintSummary creates a TUI-friendly summary of a blueprint.
 func FormatBlueprintSummary(bp *BlueprintInfo) string {
 	var b strings.Builder
+
+	// Plan-mode: show steps instead of manifest analysis
+	if len(bp.Steps) > 0 {
+		b.WriteString(fmt.Sprintf("Blueprint plan: %d steps\n\n", len(bp.Steps)))
+		for i, step := range bp.Steps {
+			b.WriteString(fmt.Sprintf("  %d. %s\n", i+1, step))
+		}
+		return b.String()
+	}
 
 	b.WriteString(fmt.Sprintf("Blueprint ready (score: %d/10)\n", bp.Heuristics.Score))
 	b.WriteString("\n")
