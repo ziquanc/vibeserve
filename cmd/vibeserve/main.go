@@ -469,7 +469,8 @@ func runDev(configPath, manifestPath, host string, port int) error {
 
 	consoleHandler := web.NewConsole(eng, s)
 	wsHub := web.NewWSHub(bus)
-	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub)
+	blueprintHandler := web.NewBlueprintHandler(eng)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler)
 	srv := router.NewServer(cfg.Server.Host, cfg.Server.Port, mux)
 
 	// Start HTTP server in background
@@ -576,7 +577,8 @@ func runUp(manifestPath, host string, port int) error {
 
 	consoleHandler := web.NewConsole(eng, s)
 	wsHub := web.NewWSHub(bus)
-	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub)
+	blueprintHandler := web.NewBlueprintHandler(eng)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler)
 	srv := router.NewServer(host, port, mux)
 
 	manifestData, _ := json.MarshalIndent(m, "", "  ")

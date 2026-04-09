@@ -6,12 +6,14 @@ import (
 )
 
 // NewConsoleMux builds the combined HTTP handler that routes:
-//   - /_console/  → embedded static files (index.html, etc.)
-//   - /_console   → redirect to /_console/
-//   - /_api/      → Console REST API handlers
-//   - /_ws        → WebSocket hub
-//   - /           → existing API handler (trie-based)
-func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub) http.Handler {
+//   - /_console/     → embedded static files (index.html, etc.)
+//   - /_console      → redirect to /_console/
+//   - /_api/         → Console REST API handlers
+//   - /_api/blueprint → Blueprint preview API
+//   - /_blueprint    → Blueprint preview HTML page
+//   - /_ws           → WebSocket hub
+//   - /              → existing API handler (trie-based)
+func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub, blueprint *BlueprintHandler) http.Handler {
 	mux := http.NewServeMux()
 
 	// Serve embedded static files under /_console/
@@ -28,6 +30,18 @@ func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub) http
 
 	// WebSocket hub
 	mux.HandleFunc("/_ws", wsHub.HandleWS)
+
+	// Blueprint preview
+	mux.HandleFunc("GET /_api/blueprint", blueprint.HandleBlueprint)
+	mux.HandleFunc("GET /_blueprint", func(w http.ResponseWriter, r *http.Request) {
+		data, err := StaticFS.ReadFile("static/blueprint.html")
+		if err != nil {
+			http.Error(w, "blueprint page not found", 404)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
+	})
 
 	// Fall through to the existing trie-based API handler
 	mux.Handle("/", apiHandler)
