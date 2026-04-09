@@ -242,7 +242,20 @@ if status == undefined {
 	b.WriteString("5. Every seed must reference a table that exists in the schemas array.\n")
 	b.WriteString("6. Script code must be valid Tengo. Use response.fail() and log.err() — never use the reserved 'error' keyword as a function name.\n\n")
 	b.WriteString("When the user asks a QUESTION (e.g., 'what can you do?', 'how does this work?', 'what is your model?'):\n")
-	b.WriteString("Respond with a helpful text answer. Do NOT output JSON for questions — just answer naturally.\n")
+	b.WriteString("Respond with a helpful text answer. Do NOT output JSON for questions — just answer naturally.\n\n")
+
+	b.WriteString("## Architectural Heuristics\n\n")
+	b.WriteString("When designing an API, think beyond simple CRUD. For every request, consider:\n\n")
+	b.WriteString("1. STATE TRANSITIONS: If an entity has a lifecycle (draft→active→closed),\n")
+	b.WriteString("   create explicit action endpoints (POST /resource/:id/activate) instead\n")
+	b.WriteString("   of generic PUT with a status field.\n\n")
+	b.WriteString("2. COMPUTED ENDPOINTS: If users need aggregated/calculated data, create\n")
+	b.WriteString("   dedicated endpoints with the computation in the script, not raw SELECTs.\n\n")
+	b.WriteString("3. VALIDATION GUARDS: Add business rule checks before mutations. Check\n")
+	b.WriteString("   time limits, prevent duplicates, verify prerequisites.\n\n")
+	b.WriteString("4. LIFECYCLE HOOKS: When one action should trigger updates elsewhere,\n")
+	b.WriteString("   include that logic. Submitting a quiz should update the student's stats.\n\n")
+	b.WriteString("Your blueprint MUST include at least 2 routes that go beyond basic CRUD.\n")
 
 	return b.String()
 }
