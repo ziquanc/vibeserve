@@ -10,13 +10,14 @@ import (
 
 // ConversationModel manages the message list and text input.
 type ConversationModel struct {
-	messages     []Message
-	input        string
-	cursorPos    int
-	width        int
-	height       int
-	focused      bool
-	scrollOffset int
+	messages        []Message
+	input           string
+	cursorPos       int
+	width           int
+	height          int
+	focused         bool
+	scrollOffset    int
+	proposalPending bool
 }
 
 // NewConversationModel creates an empty ConversationModel.
@@ -96,6 +97,29 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 				m.AddMessage(Message{Role: RoleAssistant, Content: "Commands:\n  /routes — List all API routes\n  /status — Show project status\n  /undo   — Rollback last change\n  /help   — Show this help\n  /quit   — Exit VibeServe\n  Ctrl+C  — Quit immediately\n\nAnything else is sent to the AI to create/modify your API."})
 				return m, nil
 			default:
+				if m.proposalPending {
+					lower := strings.ToLower(trimmed)
+					switch {
+					case lower == "y" || lower == "yes":
+						return m, func() tea.Msg { return BlueprintApproveMsg{} }
+					case lower == "n" || lower == "no" || lower == "/cancel":
+						m.proposalPending = false
+						m.AddMessage(Message{Role: RoleSystem, Content: "Blueprint cancelled."})
+						return m, func() tea.Msg { return BlueprintCancelMsg{} }
+					case lower == "enhance":
+						m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+						m.AddMessage(Message{Role: RoleSystem, Content: "Enhancing blueprint..."})
+						return m, func() tea.Msg {
+							return BlueprintRefineMsg{Feedback: "The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules."}
+						}
+					default:
+						m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+						m.AddMessage(Message{Role: RoleSystem, Content: "Refining blueprint..."})
+						return m, func() tea.Msg {
+							return BlueprintRefineMsg{Feedback: trimmed}
+						}
+					}
+				}
 				// Send as prompt to AI
 				return m, func() tea.Msg { return SubmitPromptMsg(trimmed) }
 			}
@@ -278,7 +302,11 @@ func (m ConversationModel) renderMessages(height int) string {
 
 // renderInput renders the input field with a prompt indicator.
 func (m ConversationModel) renderInput() string {
-	prompt := stylePrompt.Render("vibe> ")
+	promptText := "vibe> "
+	if m.proposalPending {
+		promptText = "blueprint> "
+	}
+	prompt := stylePrompt.Render(promptText)
 	promptWidth := lipgloss.Width(prompt)
 	inputWidth := m.width - promptWidth - 4
 	if inputWidth < 1 {

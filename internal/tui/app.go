@@ -179,6 +179,59 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case BlueprintProposedMsg:
+		m.conversation.RemoveLastSystem()
+		m.conversation.proposalPending = true
+
+		summary := engine.FormatBlueprintSummary(msg.Blueprint)
+		m.conversation.AddMessage(Message{
+			Role:    RoleAssistant,
+			Content: summary,
+		})
+
+		m.conversation.AddMessage(Message{
+			Role:    RoleSystem,
+			Content: fmt.Sprintf("Full blueprint: %s/_blueprint", m.serverURL),
+		})
+
+		m.conversation.AddMessage(Message{
+			Role:    RoleSystem,
+			Content: "[y] approve  |  type feedback to refine  |  [n] cancel",
+		})
+
+	case BlueprintApproveMsg:
+		m.conversation.proposalPending = false
+		m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Applying blueprint..."})
+		cmd := m.approveBlueprint()
+		cmds = append(cmds, cmd)
+
+	case BlueprintRefineMsg:
+		cmd := m.refineBlueprint(msg.Feedback)
+		cmds = append(cmds, cmd)
+
+	case BlueprintCancelMsg:
+		if m.engine != nil {
+			m.engine.CancelBlueprint()
+		}
+
+	case BlueprintAppliedMsg:
+		m.conversation.RemoveLastSystem()
+		if msg.Err != nil {
+			m.conversation.AddMessage(Message{
+				Role:    RoleError,
+				Content: fmt.Sprintf("Error: %v", msg.Err),
+			})
+		} else {
+			summary := engine.FormatChangeSummary(msg.Result)
+			m.conversation.AddMessage(Message{
+				Role:    RoleAssistant,
+				Content: summary,
+			})
+			if msg.Result != nil && msg.Result.Manifest != nil {
+				m.dashboard.UpdateFromManifest(msg.Result.Manifest)
+			}
+		}
+
 	case UndoResultMsg:
 		m.conversation.RemoveLastSystem()
 		if msg.Err != nil {
@@ -311,5 +364,38 @@ func (m RootModel) applyUndo() tea.Cmd {
 		}()
 		err := eng.Undo()
 		return UndoResultMsg{Err: err}
+	}
+}
+
+// approveBlueprint dispatches engine.ApproveBlueprint as a tea.Cmd.
+func (m RootModel) approveBlueprint() tea.Cmd {
+	eng := m.engine
+	ctx := m.ctx
+	return func() (msg tea.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				msg = BlueprintAppliedMsg{Err: fmt.Errorf("internal error: %v", r)}
+			}
+		}()
+		result, err := eng.ApproveBlueprint(ctx)
+		return BlueprintAppliedMsg{Result: result, Err: err}
+	}
+}
+
+// refineBlueprint dispatches engine.RefineBlueprint as a tea.Cmd.
+func (m RootModel) refineBlueprint(feedback string) tea.Cmd {
+	eng := m.engine
+	ctx := m.ctx
+	return func() (msg tea.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				msg = ApplyResultMsg{Err: fmt.Errorf("internal error: %v", r)}
+			}
+		}()
+		bp, err := eng.RefineBlueprint(ctx, feedback)
+		if err != nil {
+			return ApplyResultMsg{Err: err}
+		}
+		return BlueprintProposedMsg{Blueprint: bp}
 	}
 }
