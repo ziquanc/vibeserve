@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"github.com/vibeserve/vibeserve/internal/config"
+	"github.com/vibeserve/vibeserve/internal/export"
 	"github.com/vibeserve/vibeserve/internal/engine"
 	"github.com/vibeserve/vibeserve/internal/llm"
 	"github.com/vibeserve/vibeserve/internal/manifest"
@@ -52,6 +54,7 @@ func main() {
 	rootCmd.AddCommand(routesCmd())
 	rootCmd.AddCommand(devCmd())
 	rootCmd.AddCommand(undoCmd())
+	rootCmd.AddCommand(exportCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -146,6 +149,93 @@ func undoCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func exportCmd() *cobra.Command {
+	var manifestPath string
+	var force bool
+	var ai bool
+
+	cmd := &cobra.Command{
+		Use:   "export [output-dir]",
+		Short: "Export a standalone Go server project from the manifest",
+		Long:  "Generate a production-ready Go project with Chi routing, sqlx, and typed handlers from the current VibeServe manifest.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runExport(manifestPath, args, force, ai)
+		},
+	}
+
+	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing output directory")
+	cmd.Flags().BoolVar(&ai, "ai", false, "Use LLM to translate complex Tengo logic")
+
+	return cmd
+}
+
+func runExport(manifestPath string, args []string, force, ai bool) error {
+	// Load manifest
+	m, err := manifest.LoadFromFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("no manifest found at %s. Run 'vibeserve' first to create your API", manifestPath)
+	}
+
+	// Determine output directory
+	var outDir string
+	if len(args) > 0 {
+		outDir = args[0]
+	} else {
+		outDir = export.DefaultOutputDir(m)
+	}
+
+	// Check if directory exists
+	if info, err := os.Stat(outDir); err == nil && info.IsDir() {
+		if !force {
+			fmt.Printf("Directory %q already exists. Overwrite? [y/N] ", outDir)
+			var answer string
+			fmt.Scanln(&answer)
+			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+				fmt.Println("Export cancelled.")
+				return nil
+			}
+		}
+		os.RemoveAll(outDir)
+	}
+
+	fmt.Printf("Exporting to %s...\n", outDir)
+
+	// Run export pipeline
+	exp := export.NewExporter(m, outDir)
+	if err := exp.Run(); err != nil {
+		return fmt.Errorf("export failed: %w", err)
+	}
+
+	// Post-process: go mod tidy
+	fmt.Println("Running go mod tidy...")
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = outDir
+	if tidyOut, err := tidyCmd.CombinedOutput(); err != nil {
+		fmt.Printf("Warning: go mod tidy failed: %s\n", string(tidyOut))
+	}
+
+	// Post-process: gofmt
+	fmtCmd := exec.Command("gofmt", "-w", ".")
+	fmtCmd.Dir = outDir
+	fmtCmd.Run()
+
+	// Success banner
+	fmt.Println()
+	fmt.Println("  \u2713 Export complete!")
+	fmt.Println()
+	fmt.Printf("  Your production Go server is ready at: ./%s\n", outDir)
+	fmt.Println()
+	fmt.Println("  To start:")
+	fmt.Printf("    cd %s\n", outDir)
+	fmt.Println("    go run ./cmd/api")
+	fmt.Println()
+	fmt.Println("  Check README.md for API documentation.")
+	fmt.Println()
+
+	return nil
 }
 
 func createProvider(cfg *config.Config) (llm.Provider, error) {
