@@ -95,6 +95,14 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case tea.PasteMsg:
+		// Forward paste events to conversation
+		var cmd tea.Cmd
+		m.conversation, cmd = m.conversation.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
