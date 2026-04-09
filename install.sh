@@ -43,17 +43,25 @@ fi
 
 echo "Installing vibeserve v${LATEST} (${OS}/${ARCH})..."
 
-# Download
-FILENAME="${BINARY}_${LATEST}_${OS}_${ARCH}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/v${LATEST}/${FILENAME}"
-
+# Download — try raw binary first (vibeserve_darwin_arm64), fall back to .tar.gz
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-curl -fsSL "$URL" -o "${TMPDIR}/${FILENAME}"
+FILENAME_RAW="${BINARY}_${OS}_${ARCH}"
+FILENAME_TAR="${BINARY}_${LATEST}_${OS}_${ARCH}.tar.gz"
+URL_RAW="https://github.com/${REPO}/releases/download/v${LATEST}/${FILENAME_RAW}"
+URL_TAR="https://github.com/${REPO}/releases/download/v${LATEST}/${FILENAME_TAR}"
 
-# Extract
-tar -xzf "${TMPDIR}/${FILENAME}" -C "$TMPDIR"
+if curl -fsSL "$URL_RAW" -o "${TMPDIR}/${BINARY}" 2>/dev/null; then
+  echo "Downloaded binary."
+elif curl -fsSL "$URL_TAR" -o "${TMPDIR}/${FILENAME_TAR}" 2>/dev/null; then
+  echo "Downloaded archive."
+  tar -xzf "${TMPDIR}/${FILENAME_TAR}" -C "$TMPDIR"
+else
+  echo "Error: Could not download vibeserve for ${OS}/${ARCH}."
+  echo "Check https://github.com/${REPO}/releases for available downloads."
+  exit 1
+fi
 
 # Install
 if [ -w "$INSTALL_DIR" ]; then
