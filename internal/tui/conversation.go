@@ -67,6 +67,14 @@ func (m *ConversationModel) UpdateLastSystem(content string) {
 // Update handles key events for the conversation.
 func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.PasteMsg:
+		text := msg.Content
+		if len(text) > 0 {
+			m.input = m.input[:m.cursorPos] + text + m.input[m.cursorPos:]
+			m.cursorPos += len(text)
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "enter":
