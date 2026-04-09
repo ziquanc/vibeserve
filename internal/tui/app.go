@@ -278,9 +278,13 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Content: fmt.Sprintf("Step %d/%d: %s...", msg.Index, msg.Total, msg.Description),
 			})
 		} else {
+			summary := msg.Summary
+			if summary == "" || summary == "no changes" {
+				summary = "generated"
+			}
 			m.conversation.AddMessage(Message{
 				Role:    RoleAssistant,
-				Content: fmt.Sprintf("Step %d/%d done: %s", msg.Index, msg.Total, msg.Summary),
+				Content: fmt.Sprintf("Step %d/%d: %s", msg.Index, msg.Total, summary),
 			})
 		}
 
