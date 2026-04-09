@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/vibeserve/vibeserve/raw/main/assets/banner.png" width="100%" alt="VibeServe" />
+  <img src="assets/banner.png" width="100%" alt="VibeServe" />
 </p>
 
 <h1 align="center">VibeServe</h1>

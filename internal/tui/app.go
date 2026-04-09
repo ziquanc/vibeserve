@@ -199,7 +199,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.conversation.AddMessage(Message{
 			Role:    RoleSystem,
-			Content: fmt.Sprintf("Full blueprint: %s/_blueprint", m.serverURL),
+			Content: fmt.Sprintf("Blueprint:  %s/_blueprint\nSwagger:    %s/_swagger\nConsole:    %s/_console", m.serverURL, m.serverURL, m.serverURL),
 		})
 
 		m.conversation.AddMessage(Message{
@@ -234,6 +234,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.conversation.AddMessage(Message{
 				Role:    RoleAssistant,
 				Content: summary,
+			})
+			m.conversation.AddMessage(Message{
+				Role:    RoleSystem,
+				Content: fmt.Sprintf("Blueprint:  %s/_blueprint\nSwagger:    %s/_swagger\nConsole:    %s/_console", m.serverURL, m.serverURL, m.serverURL),
 			})
 			if msg.Result != nil && msg.Result.Manifest != nil {
 				m.dashboard.UpdateFromManifest(msg.Result.Manifest)
