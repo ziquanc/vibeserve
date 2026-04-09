@@ -16,15 +16,16 @@ import (
 
 // Engine coordinates the full cycle: prompt → LLM → validate → diff → migrate → update routes.
 type Engine struct {
-	bus         *Bus
-	store       SchemaStore
-	trie        RouteTrie
-	scripts     map[string]string
-	provider    llm.Provider
-	manifest    *manifest.Manifest
-	history     []llm.Message
-	vibeDir     string
-	storeOpener func(dsn string) (SchemaStore, error)
+	bus              *Bus
+	store            SchemaStore
+	trie             RouteTrie
+	scripts          map[string]string
+	provider         llm.Provider
+	manifest         *manifest.Manifest
+	history          []llm.Message
+	vibeDir          string
+	storeOpener      func(dsn string) (SchemaStore, error)
+	pendingBlueprint *BlueprintInfo
 }
 
 // EngineConfig holds configuration for creating a new Engine.
