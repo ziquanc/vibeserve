@@ -4,7 +4,7 @@
 
 set -e
 
-REPO="vibeserve/vibeserve"
+REPO="ziquanc/vibeserve"
 INSTALL_DIR="/usr/local/bin"
 BINARY="vibeserve"
 

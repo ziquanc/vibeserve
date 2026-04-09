@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/vibeserve/vibeserve/releases"><img src="https://img.shields.io/github/v/release/vibeserve/vibeserve?color=7C3AED&label=release" alt="Release"></a>
-  <a href="https://github.com/vibeserve/vibeserve/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-22C55E" alt="MIT License"></a>
+  <a href="https://github.com/ziquanc/vibeserve/releases"><img src="https://img.shields.io/github/v/release/ziquanc/vibeserve?color=7C3AED&label=release" alt="Release"></a>
+  <a href="https://github.com/ziquanc/vibeserve/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-22C55E" alt="MIT License"></a>
   <a href="#install"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-06B6D4" alt="Platform"></a>
-  <a href="https://github.com/vibeserve/vibeserve/issues"><img src="https://img.shields.io/github/issues/vibeserve/vibeserve?color=F59E0B" alt="Issues"></a>
+  <a href="https://github.com/ziquanc/vibeserve/issues"><img src="https://img.shields.io/github/issues/ziquanc/vibeserve?color=F59E0B" alt="Issues"></a>
 </p>
 
 ---
@@ -42,7 +42,7 @@ No boilerplate. No scaffolding. No framework lock-in. When you're done prototypi
 ### Quick Install (macOS & Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vibeserve/vibeserve/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ziquanc/vibeserve/main/install.sh | sh
 ```
 
 This downloads the latest release binary for your platform and puts it in `/usr/local/bin`.
@@ -52,12 +52,12 @@ This downloads the latest release binary for your platform and puts it in `/usr/
 If you have Go installed:
 
 ```bash
-go install github.com/vibeserve/vibeserve/cmd/vibeserve@latest
+go install github.com/ziquanc/vibeserve/cmd/vibeserve@latest
 ```
 
 ### Manual Download
 
-Download the binary for your platform from [GitHub Releases](https://github.com/vibeserve/vibeserve/releases) and add it to your PATH.
+Download the binary for your platform from [GitHub Releases](https://github.com/ziquanc/vibeserve/releases) and add it to your PATH.
 
 ## Quick Start
 
@@ -190,7 +190,7 @@ VibeServe stores everything in a `.vibe/` directory:
 ## Contributing
 
 ```bash
-git clone https://github.com/vibeserve/vibeserve.git
+git clone https://github.com/ziquanc/vibeserve.git
 cd vibeserve
 go build -o vibeserve ./cmd/vibeserve
 ./vibeserve
@@ -200,8 +200,8 @@ Requires Go 1.23+. No CGO — builds anywhere Go runs.
 
 ## Community
 
-- [Issues](https://github.com/vibeserve/vibeserve/issues) — Bug reports and feature requests
-- [Discussions](https://github.com/vibeserve/vibeserve/discussions) — Questions and ideas
+- [Issues](https://github.com/ziquanc/vibeserve/issues) — Bug reports and feature requests
+- [Discussions](https://github.com/ziquanc/vibeserve/discussions) — Questions and ideas
 
 ## License
 

@@ -37,7 +37,7 @@ changelog:
 
 release:
   github:
-    owner: vibeserve
+    owner: ziquanc
     name: vibeserve
   draft: false
   prerelease: auto
