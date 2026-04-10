@@ -76,3 +76,65 @@ response.json(rows)`,
 		t.Error("catch block should call next(err) to use Express error handler")
 	}
 }
+
+func TestGenerateExpressRoutes_AsyncPostgres(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}}
+	routes := []manifest.Route{{
+		Path: "/users", Method: "GET", Script: "list_users",
+	}}
+	scripts := []manifest.Script{{
+		Name: "list_users",
+		Code: `rows := db.query("SELECT * FROM users", [])
+response.json(rows)`,
+	}}
+
+	files := GenerateExpressRoutesWithDB(schemas, routes, scripts, "postgres")
+	content := files["users.js"]
+
+	if !strings.Contains(content, "async (req, res, next)") {
+		t.Error("postgres route handlers should be async")
+	}
+	if !strings.Contains(content, "await") {
+		t.Error("postgres DB calls should use await")
+	}
+	if !strings.Contains(content, "pool.query") {
+		t.Error("postgres should use pool.query not database.prepare")
+	}
+}
+
+func TestGenerateExpressRoutes_SqliteUnchanged(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}}
+	routes := []manifest.Route{{
+		Path: "/users", Method: "GET", Script: "list_users",
+	}}
+	scripts := []manifest.Script{{
+		Name: "list_users",
+		Code: `rows := db.query("SELECT * FROM users", [])
+response.json(rows)`,
+	}}
+
+	files := GenerateExpressRoutesWithDB(schemas, routes, scripts, "sqlite")
+	content := files["users.js"]
+
+	if strings.Contains(content, "async (req, res, next)") {
+		t.Error("sqlite route handlers should NOT be async")
+	}
+	if strings.Contains(content, "pool.query") {
+		t.Error("sqlite should use database.prepare not pool.query")
+	}
+	if !strings.Contains(content, "database.prepare") {
+		t.Error("sqlite should use database.prepare")
+	}
+}

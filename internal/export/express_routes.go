@@ -157,10 +157,15 @@ type expressRouteEntry struct {
 	resource string
 }
 
-// GenerateExpressRoutes generates all route files and returns a map of
-// filename -> file content. It always includes an index.js that aggregates
-// all per-resource route files.
+// GenerateExpressRoutes generates route files for sqlite (default, sync).
 func GenerateExpressRoutes(schemas []manifest.Schema, routes []manifest.Route, scripts []manifest.Script) map[string]string {
+	return GenerateExpressRoutesWithDB(schemas, routes, scripts, "sqlite")
+}
+
+// GenerateExpressRoutesWithDB generates route files with database-specific code.
+// When dbType is "postgres", handlers are async and DB calls use await with pool.query.
+// When dbType is "sqlite" (default), handlers are sync and use database.prepare.
+func GenerateExpressRoutesWithDB(schemas []manifest.Schema, routes []manifest.Route, scripts []manifest.Script, dbType string) map[string]string {
 	// Build script lookup
 	scriptMap := make(map[string]manifest.Script, len(scripts))
 	for _, s := range scripts {
@@ -185,7 +190,7 @@ func GenerateExpressRoutes(schemas []manifest.Schema, routes []manifest.Route, s
 	for _, resource := range resourceOrder {
 		routesForResource := resourceRoutes[resource]
 		filename := resource + ".js"
-		files[filename] = generateResourceRoutes(schemas, resource, routesForResource, scriptMap)
+		files[filename] = generateResourceRoutes(schemas, resource, routesForResource, scriptMap, dbType)
 	}
 
 	// Generate routes/index.js
@@ -195,7 +200,7 @@ func GenerateExpressRoutes(schemas []manifest.Schema, routes []manifest.Route, s
 }
 
 // generateResourceRoutes creates the Express router file for one resource.
-func generateResourceRoutes(schemas []manifest.Schema, resource string, routes []manifest.Route, scriptMap map[string]manifest.Script) string {
+func generateResourceRoutes(schemas []manifest.Schema, resource string, routes []manifest.Route, scriptMap map[string]manifest.Script, dbType string) string {
 	var b strings.Builder
 
 	b.WriteString("const express = require('express');\n")
@@ -283,13 +288,17 @@ func generateResourceRoutes(schemas []manifest.Schema, resource string, routes [
 			middlewareStr = ", " + strings.Join(middleware, ", ")
 		}
 
-		b.WriteString(fmt.Sprintf("router.%s('%s'%s, (req, res, next) => {\n", method, expressPathStr, middlewareStr))
+		if dbType == "postgres" {
+			b.WriteString(fmt.Sprintf("router.%s('%s'%s, async (req, res, next) => {\n", method, expressPathStr, middlewareStr))
+		} else {
+			b.WriteString(fmt.Sprintf("router.%s('%s'%s, (req, res, next) => {\n", method, expressPathStr, middlewareStr))
+		}
 		b.WriteString("  try {\n")
 
 		// Generate handler body
 		script, hasScript := scriptMap[route.Script]
 		if hasScript {
-			jsBody := translateTengoToJS(script.Code, route, schemas)
+			jsBody := translateTengoToJS(script.Code, route, schemas, dbType)
 			if jsBody == "" {
 				// Fallback stub
 				b.WriteString(fmt.Sprintf("    // TODO: Implement %s\n", route.Script))
@@ -392,7 +401,8 @@ var (
 
 // translateTengoToJS converts Tengo script code to JavaScript handler code.
 // For complex scripts that can't be translated, it adds TODO comments.
-func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Schema) string {
+// When dbType is "postgres", DB calls use await with pool.query.
+func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Schema, dbType string) string {
 	lines := strings.Split(code, "\n")
 	var out []string
 
@@ -456,11 +466,20 @@ func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Sc
 		if m := reJSDBQuery.FindStringSubmatch(trimmed); m != nil {
 			varName, sql, params := m[1], m[2], m[3]
 			jsParams := jsTranslateParams(params)
-			out = append(out, indent+fmt.Sprintf("const database = getDB();"))
-			if jsParams != "" {
-				out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').all(%s);", varName, escapeSQLForJS(sql), jsParams))
+			if dbType == "postgres" {
+				out = append(out, indent+"const pool = getDB();")
+				if jsParams != "" {
+					out = append(out, indent+fmt.Sprintf("const { rows: %s } = await pool.query('%s', [%s]);", varName, escapeSQLForJS(sql), jsParams))
+				} else {
+					out = append(out, indent+fmt.Sprintf("const { rows: %s } = await pool.query('%s');", varName, escapeSQLForJS(sql)))
+				}
 			} else {
-				out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').all();", varName, escapeSQLForJS(sql)))
+				out = append(out, indent+"const database = getDB();")
+				if jsParams != "" {
+					out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').all(%s);", varName, escapeSQLForJS(sql), jsParams))
+				} else {
+					out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').all();", varName, escapeSQLForJS(sql)))
+				}
 			}
 			continue
 		}
@@ -469,11 +488,20 @@ func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Sc
 		if m := reJSDBQueryOne.FindStringSubmatch(trimmed); m != nil {
 			varName, sql, params := m[1], m[2], m[3]
 			jsParams := jsTranslateParams(params)
-			out = append(out, indent+fmt.Sprintf("const database = getDB();"))
-			if jsParams != "" {
-				out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').get(%s);", varName, escapeSQLForJS(sql), jsParams))
+			if dbType == "postgres" {
+				out = append(out, indent+"const pool = getDB();")
+				if jsParams != "" {
+					out = append(out, indent+fmt.Sprintf("const { rows: [%s] } = await pool.query('%s', [%s]);", varName, escapeSQLForJS(sql), jsParams))
+				} else {
+					out = append(out, indent+fmt.Sprintf("const { rows: [%s] } = await pool.query('%s');", varName, escapeSQLForJS(sql)))
+				}
 			} else {
-				out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').get();", varName, escapeSQLForJS(sql)))
+				out = append(out, indent+"const database = getDB();")
+				if jsParams != "" {
+					out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').get(%s);", varName, escapeSQLForJS(sql), jsParams))
+				} else {
+					out = append(out, indent+fmt.Sprintf("const %s = database.prepare('%s').get();", varName, escapeSQLForJS(sql)))
+				}
 			}
 			continue
 		}
@@ -486,7 +514,11 @@ func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Sc
 				dataVar = "req.body"
 			}
 			structName := TableToStructName(table)
-			out = append(out, indent+fmt.Sprintf("const %s = create%s(%s);", varName, structName, dataVar))
+			if dbType == "postgres" {
+				out = append(out, indent+fmt.Sprintf("const %s = await create%s(%s);", varName, structName, dataVar))
+			} else {
+				out = append(out, indent+fmt.Sprintf("const %s = create%s(%s);", varName, structName, dataVar))
+			}
 			continue
 		}
 		if m := reJSDBInsertStmt.FindStringSubmatch(trimmed); m != nil {
@@ -496,7 +528,11 @@ func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Sc
 				dataVar = "req.body"
 			}
 			structName := TableToStructName(table)
-			out = append(out, indent+fmt.Sprintf("create%s(%s);", structName, dataVar))
+			if dbType == "postgres" {
+				out = append(out, indent+fmt.Sprintf("await create%s(%s);", structName, dataVar))
+			} else {
+				out = append(out, indent+fmt.Sprintf("create%s(%s);", structName, dataVar))
+			}
 			continue
 		}
 
@@ -508,7 +544,11 @@ func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Sc
 				dataVar = "req.body"
 			}
 			structName := TableToStructName(table)
-			out = append(out, indent+fmt.Sprintf("const %s = update%s(%s, %s);", varName, structName, idVar, dataVar))
+			if dbType == "postgres" {
+				out = append(out, indent+fmt.Sprintf("const %s = await update%s(%s, %s);", varName, structName, idVar, dataVar))
+			} else {
+				out = append(out, indent+fmt.Sprintf("const %s = update%s(%s, %s);", varName, structName, idVar, dataVar))
+			}
 			continue
 		}
 		if m := reJSDBUpdateStmt.FindStringSubmatch(trimmed); m != nil {
@@ -518,7 +558,11 @@ func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Sc
 				dataVar = "req.body"
 			}
 			structName := TableToStructName(table)
-			out = append(out, indent+fmt.Sprintf("update%s(%s, %s);", structName, idVar, dataVar))
+			if dbType == "postgres" {
+				out = append(out, indent+fmt.Sprintf("await update%s(%s, %s);", structName, idVar, dataVar))
+			} else {
+				out = append(out, indent+fmt.Sprintf("update%s(%s, %s);", structName, idVar, dataVar))
+			}
 			continue
 		}
 
@@ -526,14 +570,22 @@ func translateTengoToJS(code string, route manifest.Route, schemas []manifest.Sc
 		if m := reJSDBDelete.FindStringSubmatch(trimmed); m != nil {
 			varName, table, idVar := m[1], m[2], m[3]
 			structName := TableToStructName(table)
-			out = append(out, indent+fmt.Sprintf("delete%s(%s);", structName, idVar))
+			if dbType == "postgres" {
+				out = append(out, indent+fmt.Sprintf("await delete%s(%s);", structName, idVar))
+			} else {
+				out = append(out, indent+fmt.Sprintf("delete%s(%s);", structName, idVar))
+			}
 			_ = varName
 			continue
 		}
 		if m := reJSDBDeleteStmt.FindStringSubmatch(trimmed); m != nil {
 			table, idVar := m[1], m[2]
 			structName := TableToStructName(table)
-			out = append(out, indent+fmt.Sprintf("delete%s(%s);", structName, idVar))
+			if dbType == "postgres" {
+				out = append(out, indent+fmt.Sprintf("await delete%s(%s);", structName, idVar))
+			} else {
+				out = append(out, indent+fmt.Sprintf("delete%s(%s);", structName, idVar))
+			}
 			continue
 		}
 
