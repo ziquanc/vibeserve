@@ -595,3 +595,14 @@ func (e *Engine) ApplyAutoApprove(ctx context.Context, prompt string) (*ApplyRes
 
 	return result, nil
 }
+
+// ApplyManifestDirect applies a programmatically constructed manifest without
+// calling the LLM. Used by the smart proxy for deterministic operations.
+func (e *Engine) ApplyManifestDirect(ctx context.Context, prompt string, newManifest *manifest.Manifest) (*ApplyResult, error) {
+	result := &ApplyResult{}
+	_, err := e.applyManifest(ctx, prompt, newManifest, result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}

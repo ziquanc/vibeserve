@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -72,13 +73,17 @@ func isSystemPath(path string) bool {
 func handleProxyRequest(w http.ResponseWriter, r *http.Request, trie *Trie, scripts map[string]string, rt *runtime.Runtime, proxyFn ProxyHandler) {
 	// Parse request body for methods that carry a body.
 	var body map[string]any
+	var rawBody []byte
 	switch r.Method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
-		raw, err := io.ReadAll(r.Body)
-		if err == nil && len(raw) > 0 {
-			_ = json.Unmarshal(raw, &body)
+		var err error
+		rawBody, err = io.ReadAll(r.Body)
+		if err == nil && len(rawBody) > 0 {
+			_ = json.Unmarshal(rawBody, &body)
 		}
+		// Restore body so retry can read it again.
+		r.Body = io.NopCloser(bytes.NewReader(rawBody))
 	}
 
 	// Parse query params (single value per key).

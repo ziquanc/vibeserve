@@ -125,18 +125,24 @@ func TestProxyEngine_AutoGenerateEndpoint(t *testing.T) {
 	rt := runtime.New(s, bus)
 	handler := router.NewProxyHandler(trie, scripts, rt, true, proxyEng.HandleUnknownRequest)
 
-	// Step 1: First request to GET /products should trigger auto-generation
-	req := httptest.NewRequest(http.MethodGet, "/products", nil)
+	// Step 1: POST /products with body triggers deterministic table creation.
+	// The intent-aware proxy creates a table with columns inferred from the body
+	// plus CRUD routes — no LLM call needed.
+	body := map[string]any{"name": "Widget", "price": 9.99}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/products", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200 after auto-generation, got %d: %s", resp.StatusCode, w.Body.String())
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201 after auto-generation, got %d: %s", resp.StatusCode, w.Body.String())
 	}
 
-	if provider.calls != 1 {
-		t.Errorf("expected 1 LLM call, got %d", provider.calls)
+	// Intent-aware proxy handles this deterministically — 0 LLM calls.
+	if provider.calls != 0 {
+		t.Errorf("expected 0 LLM calls (deterministic path), got %d", provider.calls)
 	}
 
 	// Verify the X-VibeServe-Generated header
@@ -144,7 +150,16 @@ func TestProxyEngine_AutoGenerateEndpoint(t *testing.T) {
 		t.Error("expected X-VibeServe-Generated: true header")
 	}
 
-	// Step 2: Second request to GET /products should NOT trigger LLM again
+	// Verify the product was actually created
+	var created map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created product: %v", err)
+	}
+	if created["name"] != "Widget" {
+		t.Errorf("expected name=Widget, got %v", created["name"])
+	}
+
+	// Step 2: GET /products should now work without any LLM call
 	provider.calls = 0
 	req2 := httptest.NewRequest(http.MethodGet, "/products", nil)
 	w2 := httptest.NewRecorder()
@@ -152,33 +167,24 @@ func TestProxyEngine_AutoGenerateEndpoint(t *testing.T) {
 
 	resp2 := w2.Result()
 	if resp2.StatusCode != http.StatusOK {
-		t.Errorf("expected 200 on second request, got %d", resp2.StatusCode)
+		t.Errorf("expected 200 on second request, got %d: %s", resp2.StatusCode, w2.Body.String())
 	}
 
 	if provider.calls != 0 {
 		t.Errorf("expected 0 LLM calls on cached route, got %d", provider.calls)
 	}
 
-	// Step 3: POST /products should also work (route was registered by generation)
-	body := map[string]any{"name": "Widget", "price": 9.99}
-	bodyBytes, _ := json.Marshal(body)
-	req3 := httptest.NewRequest(http.MethodPost, "/products", bytes.NewReader(bodyBytes))
+	// Step 3: POST another product
+	body2 := map[string]any{"name": "Gadget", "price": 19.99}
+	bodyBytes2, _ := json.Marshal(body2)
+	req3 := httptest.NewRequest(http.MethodPost, "/products", bytes.NewReader(bodyBytes2))
 	req3.Header.Set("Content-Type", "application/json")
 	w3 := httptest.NewRecorder()
 	handler.ServeHTTP(w3, req3)
 
 	resp3 := w3.Result()
 	if resp3.StatusCode != http.StatusCreated {
-		t.Errorf("expected 201 for POST, got %d: %s", resp3.StatusCode, w3.Body.String())
-	}
-
-	// Verify the product was actually created
-	var created map[string]any
-	if err := json.NewDecoder(resp3.Body).Decode(&created); err != nil {
-		t.Fatalf("decode created product: %v", err)
-	}
-	if created["name"] != "Widget" {
-		t.Errorf("expected name=Widget, got %v", created["name"])
+		t.Errorf("expected 201 for second POST, got %d: %s", resp3.StatusCode, w3.Body.String())
 	}
 }
 
@@ -206,10 +212,11 @@ func TestProxyEngine_BuildPromptFromRequest(t *testing.T) {
 		VibeDir:  vibeDir,
 	})
 
-	pe := engine.NewProxyEngine(eng)
+	_ = engine.NewProxyEngine(eng)
 
-	// Test POST with body
-	prompt := pe.BuildPromptFromRequest("POST", "/users", map[string]any{
+	// Test POST with body — use IntentAnalyzer directly
+	analyzer := engine.NewIntentAnalyzer(nil)
+	prompt := analyzer.BuildSmartPrompt("POST", "/users", map[string]any{
 		"name":  "John",
 		"email": "john@test.com",
 		"age":   float64(25),
@@ -220,13 +227,13 @@ func TestProxyEngine_BuildPromptFromRequest(t *testing.T) {
 	}
 
 	// Test GET with query params
-	prompt2 := pe.BuildPromptFromRequest("GET", "/products", nil, map[string]string{"category": "electronics"})
+	prompt2 := analyzer.BuildSmartPrompt("GET", "/products", nil, map[string]string{"category": "electronics"})
 	if prompt2 == "" {
 		t.Error("expected non-empty prompt for GET with query params")
 	}
 
 	// Test DELETE
-	prompt3 := pe.BuildPromptFromRequest("DELETE", "/users/:id", nil, nil)
+	prompt3 := analyzer.BuildSmartPrompt("DELETE", "/users/:id", nil, nil)
 	if prompt3 == "" {
 		t.Error("expected non-empty prompt for DELETE")
 	}
