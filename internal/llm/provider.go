@@ -219,6 +219,15 @@ if status == undefined {
 	b.WriteString("If you remove a column from the schema, it will be IGNORED (SQLite cannot drop columns in older versions).\n")
 	b.WriteString("Always include ALL existing tables and columns in your output, even if unchanged.\n\n")
 
+	b.WriteString("## Timestamp Columns\n\n")
+	b.WriteString("Every table MUST include these three columns:\n")
+	b.WriteString("- created_at (DATETIME, default: \"NOW\") — set on insert\n")
+	b.WriteString("- updated_at (DATETIME, default: \"NOW\") — set on insert and update\n")
+	b.WriteString("- deleted_at (DATETIME) — NULL by default, set on soft delete\n")
+	b.WriteString("If a table already has these columns, keep them. If not, add them.\n")
+	b.WriteString("For delete scripts, use soft delete: UPDATE table SET deleted_at = date.now() WHERE id = ? instead of db.delete().\n")
+	b.WriteString("For list scripts, always filter: SELECT * FROM table WHERE deleted_at IS NULL.\n\n")
+
 	if current != nil {
 		b.WriteString("## Current Manifest\n\n")
 		b.WriteString("This is the current state of the API. Build upon it — do not start from scratch.\n\n")
