@@ -174,6 +174,139 @@ func GeneratePostgresSeed(seeds []manifest.Seed, schemas []manifest.Schema) stri
 	return b.String()
 }
 
+// GeneratePostgresDatabaseJS generates a database.js file that uses the pg
+// (node-postgres) package. It produces async CRUD helpers for each schema table.
+func GeneratePostgresDatabaseJS(schemas []manifest.Schema) string {
+	var b strings.Builder
+
+	// Connection setup
+	b.WriteString("const { Pool } = require('pg');\n\n")
+	b.WriteString("const pool = new Pool({\n")
+	b.WriteString("  connectionString: process.env.DATABASE_URL,\n")
+	b.WriteString("});\n\n")
+
+	// initDB — tests connection
+	b.WriteString("async function initDB() {\n")
+	b.WriteString("  const client = await pool.connect();\n")
+	b.WriteString("  try {\n")
+	b.WriteString("    await client.query('SELECT 1');\n")
+	b.WriteString("    console.log('Database connected');\n")
+	b.WriteString("  } finally {\n")
+	b.WriteString("    client.release();\n")
+	b.WriteString("  }\n")
+	b.WriteString("}\n\n")
+
+	// getDB — returns pool
+	b.WriteString("function getDB() {\n")
+	b.WriteString("  return pool;\n")
+	b.WriteString("}\n\n")
+
+	// Per-table CRUD helpers
+	var exportNames []string
+	exportNames = append(exportNames, "initDB", "getDB", "closeDB")
+
+	for _, schema := range schemas {
+		b.WriteString(generatePostgresTableHelpers(schema))
+
+		singular := TableToStructName(schema.Table)
+		exportNames = append(exportNames,
+			fmt.Sprintf("list%ss", singular),
+			fmt.Sprintf("get%s", singular),
+			fmt.Sprintf("create%s", singular),
+			fmt.Sprintf("update%s", singular),
+			fmt.Sprintf("delete%s", singular),
+		)
+	}
+
+	// closeDB — graceful shutdown
+	b.WriteString("async function closeDB() {\n")
+	b.WriteString("  await pool.end();\n")
+	b.WriteString("}\n\n")
+
+	// Module exports
+	b.WriteString("module.exports = {\n")
+	for i, name := range exportNames {
+		b.WriteString(fmt.Sprintf("  %s", name))
+		if i < len(exportNames)-1 {
+			b.WriteString(",")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("};\n")
+
+	return b.String()
+}
+
+// generatePostgresTableHelpers generates async CRUD helper functions for a
+// single table, using PostgreSQL $N numbered parameter placeholders.
+func generatePostgresTableHelpers(schema manifest.Schema) string {
+	var b strings.Builder
+
+	table := schema.Table
+	singular := TableToStructName(table)
+	pkCol := findPKColumn(schema)
+
+	// listXxx(limit = 50, offset = 0)
+	b.WriteString(fmt.Sprintf("async function list%ss(limit = 50, offset = 0) {\n", singular))
+	b.WriteString(fmt.Sprintf("  const { rows } = await pool.query('SELECT * FROM %s LIMIT $1 OFFSET $2', [limit, offset]);\n", table))
+	b.WriteString("  return rows;\n")
+	b.WriteString("}\n\n")
+
+	// getXxx(id)
+	b.WriteString(fmt.Sprintf("async function get%s(id) {\n", singular))
+	b.WriteString(fmt.Sprintf("  const { rows } = await pool.query('SELECT * FROM %s WHERE %s = $1', [id]);\n", table, pkCol))
+	b.WriteString("  return rows[0];\n")
+	b.WriteString("}\n\n")
+
+	// createXxx(data) — uses nonAutoPrimaryColumns
+	insertCols := nonAutoPrimaryColumns(schema)
+	colNamesList := columnNames(insertCols)
+
+	placeholders := make([]string, len(insertCols))
+	params := make([]string, len(insertCols))
+	for i, col := range insertCols {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		params[i] = fmt.Sprintf("data.%s", col.Name)
+	}
+
+	b.WriteString(fmt.Sprintf("async function create%s(data) {\n", singular))
+	b.WriteString(fmt.Sprintf("  const { rows } = await pool.query(\n"))
+	b.WriteString(fmt.Sprintf("    'INSERT INTO %s (%s) VALUES (%s) RETURNING *',\n",
+		table, colNamesList, strings.Join(placeholders, ", ")))
+	b.WriteString(fmt.Sprintf("    [%s]\n", strings.Join(params, ", ")))
+	b.WriteString("  );\n")
+	b.WriteString("  return rows[0];\n")
+	b.WriteString("}\n\n")
+
+	// updateXxx(id, data) — uses nonPrimaryColumns for SET clause
+	updateCols := nonPrimaryColumns(schema)
+	setClauses := make([]string, len(updateCols))
+	updateParams := make([]string, len(updateCols))
+	for i, col := range updateCols {
+		setClauses[i] = fmt.Sprintf("%s = $%d", col.Name, i+1)
+		updateParams[i] = fmt.Sprintf("data.%s", col.Name)
+	}
+	// The id param is the last numbered param
+	idParamNum := len(updateCols) + 1
+	updateParams = append(updateParams, "id")
+
+	b.WriteString(fmt.Sprintf("async function update%s(id, data) {\n", singular))
+	b.WriteString(fmt.Sprintf("  const { rows } = await pool.query(\n"))
+	b.WriteString(fmt.Sprintf("    'UPDATE %s SET %s WHERE %s = $%d RETURNING *',\n",
+		table, strings.Join(setClauses, ", "), pkCol, idParamNum))
+	b.WriteString(fmt.Sprintf("    [%s]\n", strings.Join(updateParams, ", ")))
+	b.WriteString("  );\n")
+	b.WriteString("  return rows[0];\n")
+	b.WriteString("}\n\n")
+
+	// deleteXxx(id)
+	b.WriteString(fmt.Sprintf("async function delete%s(id) {\n", singular))
+	b.WriteString(fmt.Sprintf("  await pool.query('DELETE FROM %s WHERE %s = $1', [id]);\n", table, pkCol))
+	b.WriteString("}\n\n")
+
+	return b.String()
+}
+
 // formatPostgresValue formats a Go value as a PostgreSQL literal.
 func formatPostgresValue(v any) string {
 	if v == nil {

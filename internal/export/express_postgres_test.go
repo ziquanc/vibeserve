@@ -101,6 +101,53 @@ func TestGeneratePostgresSeed_Empty(t *testing.T) {
 	}
 }
 
+func TestGeneratePostgresDatabaseJS(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT", Required: true},
+			{Name: "email", Type: "TEXT", Required: true},
+		},
+	}}
+
+	result := GeneratePostgresDatabaseJS(schemas)
+
+	if !strings.Contains(result, "require('pg')") {
+		t.Error("should use pg package")
+	}
+	if !strings.Contains(result, "DATABASE_URL") {
+		t.Error("should connect via DATABASE_URL")
+	}
+	if !strings.Contains(result, "async function listUsers") {
+		t.Error("list function should be async")
+	}
+	if !strings.Contains(result, "async function getUser") {
+		t.Error("get function should be async")
+	}
+	if !strings.Contains(result, "async function createUser") {
+		t.Error("create function should be async")
+	}
+	if !strings.Contains(result, "async function updateUser") {
+		t.Error("update function should be async")
+	}
+	if !strings.Contains(result, "async function deleteUser") {
+		t.Error("delete function should be async")
+	}
+	if !strings.Contains(result, "$1") {
+		t.Error("should use $1 style parameterized queries")
+	}
+	if !strings.Contains(result, "RETURNING *") {
+		t.Error("INSERT/UPDATE should use RETURNING *")
+	}
+	if !strings.Contains(result, "LIMIT") {
+		t.Error("list function should support pagination")
+	}
+	if !strings.Contains(result, "closeDB") {
+		t.Error("should export closeDB for graceful shutdown")
+	}
+}
+
 func TestFormatPostgresValue(t *testing.T) {
 	tests := []struct {
 		input    any
