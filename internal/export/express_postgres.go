@@ -154,7 +154,7 @@ func GeneratePostgresSeed(seeds []manifest.Seed, schemas []manifest.Schema) stri
 	// Build schema lookup for column ordering and auto-increment detection.
 	schemaMap := make(map[string]manifest.Schema, len(schemas))
 	for _, s := range schemas {
-		schemaMap[s.Table] = s
+		schemaMap[s.Table] = manifest.InjectTimestamps(s)
 	}
 
 	var b strings.Builder

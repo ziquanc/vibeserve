@@ -231,6 +231,40 @@ func TestGeneratePostgresDatabaseJS_SoftDelete(t *testing.T) {
 	}
 }
 
+func TestGeneratePostgresSeed_ExcludesTimestampColumns(t *testing.T) {
+	seeds := []manifest.Seed{{
+		Table: "users",
+		Rows: []map[string]any{
+			{"id": float64(1), "name": "Alice"},
+		},
+	}}
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}}
+
+	result := GeneratePostgresSeed(seeds, schemas)
+
+	// Should generate INSERT for the actual data
+	if !strings.Contains(result, "INSERT INTO users") {
+		t.Error("should generate INSERT statement")
+	}
+
+	// The INSERT should have id and name only, not timestamp columns
+	if strings.Contains(result, "created_at") {
+		t.Error("seed INSERT should not include auto-injected timestamp columns")
+	}
+	if strings.Contains(result, "updated_at") {
+		t.Error("seed INSERT should not include auto-injected timestamp columns")
+	}
+	if strings.Contains(result, "deleted_at") {
+		t.Error("seed INSERT should not include auto-injected timestamp columns")
+	}
+}
+
 func TestFormatPostgresValue(t *testing.T) {
 	tests := []struct {
 		input    any
