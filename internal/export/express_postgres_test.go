@@ -148,6 +148,89 @@ func TestGeneratePostgresDatabaseJS(t *testing.T) {
 	}
 }
 
+func TestGeneratePostgresSchema_ForeignKeyIndexes(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}, {
+		Table: "posts",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "user_id", Type: "INTEGER", Required: true, References: "users(id)"},
+			{Name: "title", Type: "TEXT"},
+		},
+	}}
+
+	result := GeneratePostgresSchema(schemas)
+
+	if !strings.Contains(result, "CREATE INDEX") {
+		t.Error("should generate indexes for foreign key columns")
+	}
+	if !strings.Contains(result, "idx_posts_user_id") {
+		t.Error("index name should follow idx_table_column convention")
+	}
+}
+
+func TestGeneratePostgresSchema_DeletedAtIndex(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}}
+
+	result := GeneratePostgresSchema(schemas)
+
+	if !strings.Contains(result, "idx_users_deleted_at") {
+		t.Error("should generate index on deleted_at for soft delete filtering")
+	}
+}
+
+func TestGeneratePostgresSchema_TimestampColumns(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}}
+
+	result := GeneratePostgresSchema(schemas)
+
+	if !strings.Contains(result, "created_at") {
+		t.Error("schema should include created_at")
+	}
+	if !strings.Contains(result, "NOW()") {
+		t.Error("timestamp defaults should use NOW() for PostgreSQL")
+	}
+}
+
+func TestGeneratePostgresDatabaseJS_SoftDelete(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}}
+
+	result := GeneratePostgresDatabaseJS(schemas)
+
+	if !strings.Contains(result, "deleted_at IS NULL") {
+		t.Error("list should filter WHERE deleted_at IS NULL")
+	}
+	if strings.Contains(result, "DELETE FROM") {
+		t.Error("delete should soft delete, not hard DELETE")
+	}
+	if !strings.Contains(result, "updated_at = NOW()") {
+		t.Error("update should set updated_at = NOW()")
+	}
+}
+
 func TestFormatPostgresValue(t *testing.T) {
 	tests := []struct {
 		input    any
