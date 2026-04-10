@@ -161,13 +161,14 @@ func exportCmd() *cobra.Command {
 	var force bool
 	var ai bool
 	var format string
+	var db string
 
 	cmd := &cobra.Command{
 		Use:   "export [output-dir]",
 		Short: "Export a standalone server project from the manifest",
 		Long:  "Generate a production-ready project from the current VibeServe manifest. Supports Go (default) and Express.js formats.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runExport(manifestPath, args, force, ai, format)
+			return runExport(manifestPath, args, force, ai, format, db)
 		},
 	}
 
@@ -175,11 +176,12 @@ func exportCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing output directory")
 	cmd.Flags().BoolVar(&ai, "ai", false, "Use LLM to translate complex Tengo logic")
 	cmd.Flags().StringVar(&format, "format", "go", "Export format: go or express")
+	cmd.Flags().StringVar(&db, "db", "", "Database type: sqlite (default) or postgres")
 
 	return cmd
 }
 
-func runExport(manifestPath string, args []string, force, ai bool, format string) error {
+func runExport(manifestPath string, args []string, force, ai bool, format, db string) error {
 	// Load manifest
 	m, err := manifest.LoadFromFile(manifestPath)
 	if err != nil {
@@ -221,6 +223,10 @@ func runExport(manifestPath string, args []string, force, ai bool, format string
 	// Run export pipeline
 	exp := export.NewExporter(m, outDir)
 
+	if db != "" {
+		exp.SetDBType(db)
+	}
+
 	var exportErr error
 	switch format {
 	case "express":
@@ -255,6 +261,12 @@ func runExport(manifestPath string, args []string, force, ai bool, format string
 	case "express":
 		fmt.Printf("  Your production Express.js server is ready at: ./%s\n", outDir)
 		fmt.Println()
+		if exp.DBType() == "postgres" {
+			fmt.Println("  Database setup:")
+			fmt.Printf("    psql -d your_database -f %s/schema.sql\n", outDir)
+			fmt.Printf("    psql -d your_database -f %s/seed.sql\n", outDir)
+			fmt.Println()
+		}
 		fmt.Println("  To start:")
 		fmt.Printf("    cd %s\n", outDir)
 		fmt.Println("    npm install")

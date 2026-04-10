@@ -9,6 +9,7 @@ type Manifest struct {
 	Version     string   `json:"version"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
+	Database    string   `json:"database,omitempty"`
 	Schemas     []Schema `json:"schemas"`
 	Routes      []Route  `json:"routes"`
 	Scripts     []Script `json:"scripts"`

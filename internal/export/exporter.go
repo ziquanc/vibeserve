@@ -15,6 +15,7 @@ type Exporter struct {
 	manifest *manifest.Manifest
 	outDir   string
 	vibeDir  string
+	dbType   string
 }
 
 // NewExporter creates an Exporter that will write the generated project to outDir.
@@ -25,6 +26,23 @@ func NewExporter(m *manifest.Manifest, outDir string) *Exporter {
 		outDir:   outDir,
 		vibeDir:  ".vibe",
 	}
+}
+
+// SetDBType sets the database type for export ("sqlite" or "postgres").
+func (e *Exporter) SetDBType(dbType string) {
+	e.dbType = dbType
+}
+
+// DBType returns the resolved database type. CLI flag takes precedence,
+// then manifest, then defaults to "sqlite".
+func (e *Exporter) DBType() string {
+	if e.dbType != "" {
+		return e.dbType
+	}
+	if e.manifest.Database != "" {
+		return e.manifest.Database
+	}
+	return "sqlite"
 }
 
 // SetVibeDir overrides the default ".vibe" directory (useful for testing).

@@ -16,6 +16,12 @@ var validColumnTypes = map[string]bool{
 	"BOOLEAN": true, "DATE": true, "DATETIME": true,
 }
 
+var validDatabases = map[string]bool{
+	"":         true,
+	"sqlite":   true,
+	"postgres": true,
+}
+
 // Validate runs all three validation layers on a manifest.
 func Validate(m *Manifest) error {
 	if err := validateStructural(m); err != nil {
@@ -71,6 +77,10 @@ func validateStructural(m *Manifest) error {
 	}
 	if m.Version == "" {
 		return fmt.Errorf("manifest version is required")
+	}
+
+	if !validDatabases[m.Database] {
+		return fmt.Errorf("unsupported database %q (supported: sqlite, postgres)", m.Database)
 	}
 
 	tableNames := make(map[string]bool)
