@@ -19,7 +19,9 @@
 
 VibeServe is a single-binary CLI that turns natural language into a running API server. Describe what you want in plain English (or any language), and VibeServe creates the database schema, API routes, business logic, and seed data — all live, all instantly testable.
 
-No boilerplate. No scaffolding. No framework lock-in. When you're done prototyping, export to a standalone Go server and ship it.
+No boilerplate. No scaffolding. No framework lock-in. When you're done prototyping, export to a standalone Go or Express.js server and ship it.
+
+> **New in v0.2** — Express.js export with full security stack (helmet, CORS, JWT, rate-limiting) and proxy/auto-evolve mode that builds your API from incoming HTTP requests.
 
 ## Features
 
@@ -33,7 +35,8 @@ No boilerplate. No scaffolding. No framework lock-in. When you're done prototypi
 | **ER Diagram** | Auto-generated entity relationship diagram at `/_blueprint` with interactive table highlighting. |
 | **Swagger UI** | Live API documentation at `/_swagger` — generated from your manifest in real-time. |
 | **Undo** | Every schema change creates a snapshot. Type `/undo` to roll back instantly. |
-| **Export** | `vibeserve export` generates a standalone Go project — Chi router, sqlx, typed models, Dockerfile. |
+| **Export** | `vibeserve export` generates a standalone Go project — Chi router, sqlx, typed models, Dockerfile. Also supports Express.js with `--format express`. |
+| **Proxy Mode** | `vibeserve --proxy` — auto-generates endpoints from unmatched HTTP requests. Your API evolves as you use it. |
 | **Pluggable LLM** | Works with Claude, OpenAI-compatible APIs (z.ai, x.ai, Groq), and local Ollama models. |
 | **Single Binary** | One file. No runtime dependencies. No Docker required. Just download and run. |
 
@@ -98,8 +101,10 @@ curl -X POST http://localhost:8080/tasks -d '{"title":"Ship v1","priority":"high
 | Command | Description |
 |---------|-------------|
 | `vibeserve` | Start in interactive mode (default) |
+| `vibeserve --proxy` | Start with proxy/auto-evolve mode — unmatched requests auto-generate endpoints |
 | `vibeserve up` | Start server from existing manifest (no AI) |
 | `vibeserve export [dir]` | Export standalone Go project |
+| `vibeserve export --format express [dir]` | Export standalone Express.js project with security middleware |
 | `vibeserve routes` | Print route table |
 | `vibeserve undo` | Restore last database snapshot |
 | `vibeserve version` | Print version |
@@ -126,7 +131,9 @@ Once running, these are available in your browser:
 
 ## Export
 
-Graduate from prototype to production:
+Graduate from prototype to production. Two formats:
+
+### Go (default)
 
 ```bash
 vibeserve export ./my-api
@@ -150,6 +157,76 @@ my-api/
 ```bash
 cd my-api && go run ./cmd/api
 ```
+
+### Express.js
+
+```bash
+vibeserve export --format express ./my-api
+```
+
+Generates a production-ready Express.js project with full security:
+
+```
+my-api/
+  server.js                 # Express + helmet + CORS + rate-limit + JWT + compression
+  package.json              # All dependencies pre-configured
+  .env.example              # Environment variables template
+  Dockerfile                # Production build with health check
+  openapi.yaml              # OpenAPI 3.0.3 spec
+  README.md                 # Auto-generated docs with route table
+  src/
+    middleware/auth.js       # JWT authentication + bcrypt password hashing
+    middleware/validate.js   # express-validator wrapper
+    models/database.js       # better-sqlite3 with prepared statements
+    routes/
+      index.js              # Route aggregator
+      {resource}.js         # Per-resource route handlers with input validation
+    data/state.db            # Your data, copied over
+```
+
+**Security stack included:**
+- **helmet** — security HTTP headers
+- **cors** — configurable cross-origin
+- **express-rate-limit** — 100 req/15min general, 5 req/15min auth routes
+- **jsonwebtoken + bcryptjs** — JWT auth with password hashing
+- **express-validator** — input validation on all POST/PUT/PATCH routes
+- **morgan** — request logging
+- **compression** — gzip responses
+- **1MB body size limit**
+
+```bash
+cd my-api && npm install && npm start
+```
+
+## Proxy Mode (Auto-Evolve)
+
+Enable with `vibeserve --proxy`. Instead of returning 404 for unmatched routes, VibeServe auto-generates the endpoint:
+
+```bash
+vibeserve --proxy
+```
+
+```bash
+# No /products route exists yet
+curl -X POST http://localhost:8080/products -d '{"name":"Widget","price":9.99}'
+
+# VibeServe detects the unmatched route, uses LLM to generate:
+#   - products table (name TEXT, price REAL)
+#   - POST /products route
+#   - Registers the route permanently
+# Returns: {"id":1,"name":"Widget","price":9.99}
+# Header: X-VibeServe-Generated: true
+
+# Next request is instant — route already exists
+curl http://localhost:8080/products
+# [{"id":1,"name":"Widget","price":9.99}]
+
+# Another new endpoint — API keeps growing
+curl http://localhost:8080/products/1/reviews
+# Auto-generates reviews table linked to products
+```
+
+Each new request potentially adds new tables and routes. Your API builds itself as you use it. All generated routes persist in the manifest and survive restarts.
 
 ## LLM Providers
 
