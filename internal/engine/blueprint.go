@@ -166,7 +166,13 @@ func (e *Engine) executePlanSteps(ctx context.Context, steps []string, prompt st
 			return nil, fmt.Errorf("step %d/%d failed: %w", stepNum, len(steps), err)
 		}
 
-		// Apply this step's manifest immediately
+		// Merge: keep everything from current manifest, add/update from LLM output.
+		// This prevents the LLM from silently dropping tables/routes.
+		if currentManifest != nil {
+			newManifest = mergeManifests(currentManifest, newManifest)
+		}
+
+		// Apply the merged manifest
 		stepResult, err := e.applyManifest(ctx, step, newManifest, &ApplyResult{})
 		if err != nil {
 			log.Printf("[engine] step %d failed to apply: %v", stepNum, err)
@@ -206,6 +212,8 @@ func (e *Engine) executePlanSteps(ctx context.Context, steps []string, prompt st
 }
 
 // RefineBlueprint sends feedback to LLM and generates a new blueprint.
+// In plan-mode (steps only, no manifest), regenerates the plan with feedback.
+// In manifest-mode, regenerates the manifest with feedback.
 func (e *Engine) RefineBlueprint(ctx context.Context, feedback string) (*BlueprintInfo, error) {
 	if e.pendingBlueprint == nil {
 		return nil, fmt.Errorf("no pending blueprint to refine")
@@ -215,11 +223,17 @@ func (e *Engine) RefineBlueprint(ctx context.Context, feedback string) (*Bluepri
 		return nil, fmt.Errorf("no LLM provider configured")
 	}
 
-	prompt := fmt.Sprintf("Refine the current API design based on this feedback: %s", feedback)
-
 	if e.bus != nil {
 		e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Refining blueprint..."})
 	}
+
+	// Plan-mode: regenerate the plan with the original prompt + feedback
+	if len(e.pendingBlueprint.Steps) > 0 {
+		return e.refinePlan(ctx, feedback)
+	}
+
+	// Manifest-mode: ask LLM to refine the existing manifest
+	prompt := fmt.Sprintf("Refine the current API design based on this feedback: %s\n\nIMPORTANT: Keep ALL existing tables, routes, scripts, and seeds. Only ADD or MODIFY based on the feedback. Do NOT remove anything unless explicitly asked.", feedback)
 
 	newManifest, err := e.provider.Generate(ctx, e.pendingBlueprint.Manifest, prompt, e.history)
 	if err != nil {
@@ -240,6 +254,191 @@ func (e *Engine) RefineBlueprint(ctx context.Context, feedback string) (*Bluepri
 	}
 
 	return bp, nil
+}
+
+// refinePlan keeps existing steps and asks the LLM only for NEW steps to add.
+// Original steps are preserved in code — the LLM cannot remove them.
+func (e *Engine) refinePlan(ctx context.Context, feedback string) (*BlueprintInfo, error) {
+	oldSteps := e.pendingBlueprint.Steps
+	originalPrompt := e.pendingBlueprint.Prompt
+
+	// Build existing steps summary for context
+	var stepsText strings.Builder
+	for i, s := range oldSteps {
+		stepsText.WriteString(fmt.Sprintf("%d. %s\n", i+1, s))
+	}
+
+	// Ask LLM ONLY for the new steps — we merge them ourselves
+	directPrompt := fmt.Sprintf(`The user is building: "%s"
+
+These steps are ALREADY planned and will be executed:
+%s
+The user now wants to ADD: "%s"
+
+Output ONLY a JSON array of the NEW additional steps needed for this enhancement.
+Do NOT repeat the existing steps above — only output what's NEW.
+Keep the new steps specific and actionable.`, originalPrompt, stepsText.String(), feedback)
+
+	planManifest, planErr := e.provider.Generate(ctx, e.manifest, directPrompt, nil)
+
+	if e.bus != nil {
+		e.bus.Publish(Event{Type: EventLLMRequestCompleted})
+	}
+
+	var steps []string
+	if planErr != nil {
+		if chatErr, ok := planErr.(*llm.ChatOnlyError); ok {
+			parsed, parseErr := llm.ExtractPlan(chatErr.Text)
+			if parseErr == nil && len(parsed) > 0 {
+				steps = parsed
+			} else {
+				return nil, fmt.Errorf("failed to parse refined plan: %w", parseErr)
+			}
+		} else {
+			return nil, fmt.Errorf("plan refinement failed: %w", planErr)
+		}
+	}
+
+	// If LLM returned a manifest directly, try to extract steps from it
+	if planManifest != nil && len(steps) == 0 {
+		// LLM gave a manifest instead of a plan — propose it directly
+		bp, err := e.proposeBlueprint(planManifest)
+		if err != nil {
+			return nil, err
+		}
+		bp.Prompt = originalPrompt
+		if e.bus != nil {
+			e.bus.Publish(Event{Type: EventBlueprintRefined, Data: *bp})
+		}
+		return bp, nil
+	}
+
+	if len(steps) == 0 {
+		return nil, fmt.Errorf("refinement produced no new steps")
+	}
+
+	// Merge: original steps + new steps from feedback
+	mergedSteps := make([]string, 0, len(oldSteps)+len(steps))
+	mergedSteps = append(mergedSteps, oldSteps...)
+	mergedSteps = append(mergedSteps, steps...)
+
+	bp := &BlueprintInfo{
+		Steps:   mergedSteps,
+		Prompt:  originalPrompt,
+		Summary: fmt.Sprintf("Refined plan: %d steps (%d original + %d new)", len(mergedSteps), len(oldSteps), len(steps)),
+	}
+	e.pendingBlueprint = bp
+
+	if e.bus != nil {
+		e.bus.Publish(Event{Type: EventBlueprintRefined, Data: *bp})
+		e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
+	}
+
+	return bp, nil
+}
+
+// mergeManifests combines old and new manifests. Everything in old is kept.
+// New items are added. If both have the same table/route/script, new wins.
+// This prevents LLM from silently dropping entities.
+func mergeManifests(old, new *manifest.Manifest) *manifest.Manifest {
+	merged := &manifest.Manifest{
+		Version:     new.Version,
+		Name:        new.Name,
+		Description: new.Description,
+	}
+	if merged.Name == "" {
+		merged.Name = old.Name
+	}
+	if merged.Version == "" {
+		merged.Version = old.Version
+	}
+	if merged.Description == "" {
+		merged.Description = old.Description
+	}
+
+	// Merge schemas: keep old tables, add/replace with new
+	schemaMap := make(map[string]manifest.Schema)
+	for _, s := range old.Schemas {
+		schemaMap[s.Table] = s
+	}
+	for _, s := range new.Schemas {
+		schemaMap[s.Table] = s // new overwrites old if same table
+	}
+	for _, s := range old.Schemas {
+		if ms, ok := schemaMap[s.Table]; ok {
+			merged.Schemas = append(merged.Schemas, ms)
+			delete(schemaMap, s.Table)
+		}
+	}
+	// Add any tables only in new
+	for _, s := range new.Schemas {
+		if _, ok := schemaMap[s.Table]; ok {
+			merged.Schemas = append(merged.Schemas, s)
+		}
+	}
+
+	// Merge routes: keep old routes, add/replace with new
+	type routeKey struct{ Method, Path string }
+	routeMap := make(map[routeKey]manifest.Route)
+	for _, r := range old.Routes {
+		routeMap[routeKey{r.Method, r.Path}] = r
+	}
+	for _, r := range new.Routes {
+		routeMap[routeKey{r.Method, r.Path}] = r
+	}
+	// Preserve order: old first, then new-only
+	seen := make(map[routeKey]bool)
+	for _, r := range old.Routes {
+		k := routeKey{r.Method, r.Path}
+		merged.Routes = append(merged.Routes, routeMap[k])
+		seen[k] = true
+	}
+	for _, r := range new.Routes {
+		k := routeKey{r.Method, r.Path}
+		if !seen[k] {
+			merged.Routes = append(merged.Routes, r)
+		}
+	}
+
+	// Merge scripts: keep old, add/replace with new
+	scriptMap := make(map[string]manifest.Script)
+	for _, s := range old.Scripts {
+		scriptMap[s.Name] = s
+	}
+	for _, s := range new.Scripts {
+		scriptMap[s.Name] = s
+	}
+	seen2 := make(map[string]bool)
+	for _, s := range old.Scripts {
+		merged.Scripts = append(merged.Scripts, scriptMap[s.Name])
+		seen2[s.Name] = true
+	}
+	for _, s := range new.Scripts {
+		if !seen2[s.Name] {
+			merged.Scripts = append(merged.Scripts, s)
+		}
+	}
+
+	// Merge seeds: keep old, add new tables
+	seedMap := make(map[string]manifest.Seed)
+	for _, s := range old.Seeds {
+		seedMap[s.Table] = s
+	}
+	for _, s := range new.Seeds {
+		seedMap[s.Table] = s
+	}
+	seen3 := make(map[string]bool)
+	for _, s := range old.Seeds {
+		merged.Seeds = append(merged.Seeds, seedMap[s.Table])
+		seen3[s.Table] = true
+	}
+	for _, s := range new.Seeds {
+		if !seen3[s.Table] {
+			merged.Seeds = append(merged.Seeds, s)
+		}
+	}
+
+	return merged
 }
 
 // FormatBlueprintSummary creates a TUI-friendly summary of a blueprint.

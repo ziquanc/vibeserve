@@ -48,6 +48,23 @@ func ValidateCompilation(m *Manifest) error {
 	return validateCompilation(m)
 }
 
+// ValidateCompilationErrors returns a list of all script compilation errors.
+// Returns an empty slice if all scripts compile successfully.
+func ValidateCompilationErrors(m *Manifest) []string {
+	var errors []string
+	for _, s := range m.Scripts {
+		script := tengo.NewScript([]byte(s.Code))
+		for _, name := range stdlibNames {
+			_ = script.Add(name, map[string]interface{}{})
+		}
+		_, err := script.Compile()
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("script %q: %v", s.Name, err))
+		}
+	}
+	return errors
+}
+
 func validateStructural(m *Manifest) error {
 	if m.Name == "" {
 		return fmt.Errorf("manifest name is required")
@@ -171,26 +188,16 @@ func parseReference(ref string) (table, column string) {
 var stdlibNames = []string{"db", "request", "response", "date", "crypto", "log"}
 
 func validateCompilation(m *Manifest) error {
-	errs := ValidateCompilationErrors(m)
-	if len(errs) > 0 {
-		return fmt.Errorf("%s", strings.Join(errs, "; "))
-	}
-	return nil
-}
-
-// ValidateCompilationErrors compiles every script and returns a slice of
-// human-readable error strings (one per failing script). Returns nil if all
-// scripts compile cleanly.
-func ValidateCompilationErrors(m *Manifest) []string {
-	var errs []string
 	for _, s := range m.Scripts {
 		script := tengo.NewScript([]byte(s.Code))
 		for _, name := range stdlibNames {
+			// Add empty maps so compiler knows these variables exist.
 			_ = script.Add(name, map[string]interface{}{})
 		}
-		if _, err := script.Compile(); err != nil {
-			errs = append(errs, fmt.Sprintf("script %q: %s", s.Name, err.Error()))
+		_, err := script.Compile()
+		if err != nil {
+			return fmt.Errorf("script %q: %w", s.Name, err)
 		}
 	}
-	return errs
+	return nil
 }

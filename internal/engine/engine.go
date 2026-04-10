@@ -74,36 +74,6 @@ func (e *Engine) History() []llm.Message {
 	return e.history
 }
 
-// Provider returns the LLM provider.
-func (e *Engine) Provider() llm.Provider {
-	return e.provider
-}
-
-// Bus returns the event bus.
-func (e *Engine) Bus() *Bus {
-	return e.bus
-}
-
-// Scripts returns the scripts map.
-func (e *Engine) Scripts() map[string]string {
-	return e.scripts
-}
-
-// Store returns the schema store.
-func (e *Engine) Store() SchemaStore {
-	return e.store
-}
-
-// Trie returns the route trie.
-func (e *Engine) Trie() RouteTrie {
-	return e.trie
-}
-
-// SetScripts replaces the scripts map (used by proxy to add new scripts).
-func (e *Engine) SetScripts(s map[string]string) {
-	e.scripts = s
-}
-
 // Apply processes a user prompt through the full pipeline and PROPOSES a blueprint:
 // 1. Emit UserPromptReceived
 // 2. Call LLM to generate manifest (with planning if needed)
@@ -113,30 +83,10 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 	// 1. Emit UserPromptReceived
 	e.bus.Publish(Event{Type: EventUserPromptReceived, Data: prompt})
 
-	// 2. Brainstorming phase — ask LLM to think about domain design (if provider supports Chat)
-	var designDoc string
-	if e.provider != nil {
-		e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Brainstorming domain design..."})
-		brainstormPrompt := llm.BuildBrainstormPrompt(prompt)
-		if doc, err := e.provider.Chat(ctx, llm.BrainstormSystemPrompt, brainstormPrompt); err == nil {
-			designDoc = doc
-			e.bus.Publish(Event{Type: EventLLMRequestCompleted, Data: designDoc})
-			e.bus.Publish(Event{Type: EventBrainstormCompleted, Data: BrainstormInfo{DesignDoc: designDoc}})
-		} else {
-			// Brainstorm failed, continue without it (log but don't fail)
-			log.Printf("[engine] brainstorming failed, continuing with standard planning: %v", err)
-		}
-	}
-
-	// 3. Planning phase — ask LLM to break work into steps
+	// 2. Planning phase — ask LLM to break work into steps
 	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Planning..."})
 
-	var planPrompt string
-	if designDoc != "" {
-		planPrompt = llm.BuildEnrichedPlanPrompt(prompt, designDoc)
-	} else {
-		planPrompt = llm.BuildPlanPrompt(prompt)
-	}
+	planPrompt := llm.BuildPlanPrompt(prompt)
 	planManifest, planErr := e.provider.Generate(ctx, e.manifest, planPrompt, nil)
 
 	var steps []string
@@ -223,35 +173,28 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 
 	e.bus.Publish(Event{Type: EventManifestGenerated, Data: newManifest})
 
-	// 3. Validate
+	// 3. Validate — try autofix for compilation errors
 	if err := manifest.Validate(newManifest); err != nil {
-		log.Printf("[engine] validation failed: %v", err)
-		e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
-
-		// Auto-fix: if the error is from script compilation, try to fix via LLM
 		if isCompilationError(err) {
-			scriptErrors := manifest.ValidateCompilationErrors(newManifest)
-			if len(scriptErrors) > 0 && e.provider != nil {
-				log.Printf("[engine] attempting auto-fix for %d compilation error(s)", len(scriptErrors))
-				fixed := e.autoFixManifest(ctx, newManifest, scriptErrors, -1, "")
-				if fixed != nil {
-					// Re-validate the fixed manifest (structure + referential + compilation)
-					if fixErr := manifest.Validate(fixed); fixErr == nil {
-						log.Printf("[engine] auto-fix succeeded, proceeding with fixed manifest")
-						newManifest = fixed
-						repairManifest(newManifest, e.manifest)
-						// Fall through to diff + apply below
-					} else {
-						log.Printf("[engine] auto-fix produced invalid manifest: %v", fixErr)
-						return nil, fmt.Errorf("manifest validation failed (auto-fix attempted): %w", fixErr)
-					}
+			log.Printf("[engine] compilation error, attempting auto-fix: %v", err)
+			compErrors := manifest.ValidateCompilationErrors(newManifest)
+			fixed := e.autoFixManifest(ctx, newManifest, compErrors, 0, prompt)
+			if fixed != nil {
+				if err2 := manifest.Validate(fixed); err2 == nil {
+					log.Printf("[engine] auto-fix succeeded")
+					newManifest = fixed
 				} else {
+					log.Printf("[engine] auto-fix did not resolve all errors: %v", err2)
+					e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
 					return nil, fmt.Errorf("manifest validation failed: %w", err)
 				}
 			} else {
+				e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
 				return nil, fmt.Errorf("manifest validation failed: %w", err)
 			}
 		} else {
+			log.Printf("[engine] validation failed: %v", err)
+			e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
 			return nil, fmt.Errorf("manifest validation failed: %w", err)
 		}
 	}
@@ -405,14 +348,8 @@ func (e *Engine) Undo() error {
 
 	e.bus.Publish(Event{Type: EventSnapshotRestored, Data: snap})
 
-	// Restore the previous manifest: copy manifest.prev.json over manifest.json,
-	// then load it.
-	prevPath := filepath.Join(e.vibeDir, "manifest.prev.json")
+	// Reload the previous manifest if available
 	manifestPath := filepath.Join(e.vibeDir, "manifest.json")
-	if prevData, err := os.ReadFile(prevPath); err == nil {
-		_ = os.WriteFile(manifestPath, prevData, 0o644)
-	}
-
 	if prev, err := manifest.LoadFromFile(manifestPath); err == nil {
 		// Remove the last change from history
 		if len(e.history) >= 2 {
@@ -425,25 +362,39 @@ func (e *Engine) Undo() error {
 }
 
 // saveManifest writes the current manifest to .vibe/manifest.json.
-// It first backs up the existing manifest.json to manifest.prev.json so that
-// Undo() can restore both the DB snapshot and the previous manifest.
 func (e *Engine) saveManifest() error {
 	if e.vibeDir == "" {
 		return nil
 	}
-	manifestPath := filepath.Join(e.vibeDir, "manifest.json")
-	prevPath := filepath.Join(e.vibeDir, "manifest.prev.json")
-
-	// Back up the current manifest before overwriting.
-	if existing, err := os.ReadFile(manifestPath); err == nil {
-		_ = os.WriteFile(prevPath, existing, 0o644)
-	}
-
 	data, err := json.MarshalIndent(e.manifest, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(manifestPath, data, 0o644)
+	path := filepath.Join(e.vibeDir, "manifest.json")
+	return os.WriteFile(path, data, 0o644)
+}
+
+// ApplyManifestDirect applies a manifest directly, bypassing proposal mode.
+// Used by the proxy engine for auto-generated tables/routes.
+func (e *Engine) ApplyManifestDirect(ctx context.Context, prompt string, m *manifest.Manifest) (*ApplyResult, error) {
+	result := &ApplyResult{}
+	return e.applyManifest(ctx, prompt, m, result)
+}
+
+// ApplyAutoApprove runs Apply() and immediately approves the blueprint.
+// Used by the proxy engine for AI-generated responses that don't need user review.
+func (e *Engine) ApplyAutoApprove(ctx context.Context, prompt string) (*ApplyResult, error) {
+	blueprintResult, err := e.Apply(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	if blueprintResult.ChatResponse != "" {
+		return &ApplyResult{ChatResponse: blueprintResult.ChatResponse}, nil
+	}
+	if blueprintResult.Blueprint != nil {
+		return e.ApproveBlueprint(ctx)
+	}
+	return nil, fmt.Errorf("unexpected empty result")
 }
 
 // repairManifest fills in common fields that LLMs often omit.
@@ -600,55 +551,4 @@ func FormatChangeSummary(result *ApplyResult) string {
 	}
 
 	return b.String()
-}
-
-// ApplyAutoApprove runs the full Apply pipeline but auto-approves the blueprint
-// without requiring user interaction. This is used by the proxy/auto-evolve mode.
-// It returns the ApplyResult from applying the generated manifest.
-func (e *Engine) ApplyAutoApprove(ctx context.Context, prompt string) (*ApplyResult, error) {
-	// Clear any pending blueprint first
-	e.pendingBlueprint = nil
-
-	// Direct LLM generation without planning (for speed in proxy mode)
-	e.bus.Publish(Event{Type: EventUserPromptReceived, Data: prompt})
-	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: prompt})
-
-	newManifest, err := e.provider.Generate(ctx, e.manifest, prompt, e.history)
-	if err != nil {
-		if chatErr, ok := err.(*llm.ChatOnlyError); ok {
-			return nil, fmt.Errorf("LLM returned conversational text instead of manifest: %s", chatErr.Text[:min(200, len(chatErr.Text))])
-		}
-		return nil, fmt.Errorf("LLM generation failed: %w", err)
-	}
-
-	if newManifest == nil {
-		return nil, fmt.Errorf("LLM returned nil manifest")
-	}
-
-	// Propose and immediately approve
-	bp, err := e.proposeBlueprint(newManifest)
-	if err != nil {
-		return nil, fmt.Errorf("propose blueprint: %w", err)
-	}
-
-	// Clear pending so ApproveBlueprint can consume it
-	_ = bp
-
-	result, err := e.ApproveBlueprint(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("approve blueprint: %w", err)
-	}
-
-	return result, nil
-}
-
-// ApplyManifestDirect applies a programmatically constructed manifest without
-// calling the LLM. Used by the smart proxy for deterministic operations.
-func (e *Engine) ApplyManifestDirect(ctx context.Context, prompt string, newManifest *manifest.Manifest) (*ApplyResult, error) {
-	result := &ApplyResult{}
-	_, err := e.applyManifest(ctx, prompt, newManifest, result)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }

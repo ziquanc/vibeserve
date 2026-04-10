@@ -20,10 +20,6 @@ type Provider interface {
 	// Generate sends the user prompt (with history and current manifest context)
 	// to the LLM and returns the generated manifest.
 	Generate(ctx context.Context, current *manifest.Manifest, prompt string, history []Message) (*manifest.Manifest, error)
-
-	// Chat sends a prompt and returns the raw text response (no JSON parsing).
-	// Used for brainstorming, planning, and other non-manifest interactions.
-	Chat(ctx context.Context, systemPrompt string, prompt string) (string, error)
 }
 
 // BuildSystemPrompt constructs the system prompt that instructs the LLM how to
@@ -264,82 +260,39 @@ if status == undefined {
 	return b.String()
 }
 
-// BrainstormSystemPrompt is the system prompt for the brainstorming phase.
-const BrainstormSystemPrompt = `You are an expert database architect and API designer. You think deeply about domain modeling before building anything. You design schemas that capture real-world relationships, lifecycle states, and business rules — not just flat CRUD tables.`
-
-// BuildBrainstormPrompt asks the LLM to think deeply about the domain before planning.
-// The output is a design document that gets fed into the plan step builder.
-func BuildBrainstormPrompt(userRequest string) string {
-	return fmt.Sprintf(`A user wants to build an API. Their request: "%s"
-
-Before we build anything, THINK about the domain design. Analyze the request and produce a concise design document covering:
-
-1. ENTITIES: What tables are needed? For each table, list the columns with types. Think about:
-   - Foreign keys and relationships (one-to-many, many-to-many via join tables)
-   - Status/state fields for entities with lifecycles (use TEXT with check constraints mentally)
-   - Timestamps: created_at, updated_at where appropriate
-   - Soft delete: deleted_at for entities that should be archivable
-
-2. RELATIONSHIPS: How do entities connect? Which are one-to-many vs many-to-many?
-   - For many-to-many, name the join table explicitly
-
-3. LIFECYCLE & BUSINESS RULES: Which entities have state machines or validation rules?
-   - Example: a booking goes pending → confirmed → completed/cancelled
-   - Example: a club membership requires approval
-   - What computed/aggregated endpoints would be useful? (counts, dashboards, reports)
-
-4. BEYOND-CRUD ENDPOINTS: What endpoints go beyond basic Create/Read/Update/Delete?
-   - Action endpoints (POST /resource/:id/action-name)
-   - Search/filter endpoints
-   - Analytics/aggregation endpoints
-
-Be specific. Use real column names and types. Keep it concise — this is a design doc, not an essay.`, userRequest)
-}
-
-// BuildEnrichedPlanPrompt creates a plan prompt that includes the brainstorm design.
-// This produces much better steps than the naive approach.
-func BuildEnrichedPlanPrompt(userRequest string, designDoc string) string {
-	return fmt.Sprintf(`The user wants: "%s"
-
-Here is the domain design for this API:
-
-%s
-
----
-
-Based on this design, break the implementation into 3-7 small steps. Each step should be independently implementable.
-
-Output ONLY a JSON array of step descriptions. Each description should be SPECIFIC — name exact tables, columns, and routes.
-
-Guidelines:
-- First steps: create core tables with foreign keys
-- Middle steps: create routes (grouped by entity), include beyond-CRUD routes
-- Later steps: seed data, computed endpoints, validation logic
-- Each step should reference specific table names and key columns from the design
-- Order matters — create parent tables before child tables
-
-Example output format:
-["Create users table (id, email, name, role, created_at) and auth routes (POST /register, POST /login)", "Create cars table (id, owner_id FK→users, make, model, year, status, created_at) with CRUD routes", ...]`, userRequest, designDoc)
-}
-
 // BuildPlanPrompt creates a prompt that asks the LLM to break a request into steps.
-// This is the original simple prompt, kept for backward compatibility and fallback.
 func BuildPlanPrompt(userRequest string) string {
 	return fmt.Sprintf(`The user wants: "%s"
 
-Break this into 2-5 small implementation steps. Each step should add ONE thing (a table, a few related routes, seed data, etc.).
+You are a senior backend architect. Design a professional API, not a toy CRUD app.
 
-Output ONLY a JSON array of step descriptions. Example:
-["Create users table with id, name, email columns", "Create posts table with id, title, body, user_id columns", "Add CRUD routes for users", "Add CRUD routes for posts", "Add seed data for users and posts"]
+Before writing steps, think about the DOMAIN:
+- What are the core entities and their RELATIONSHIPS (foreign keys, join tables)?
+- What entities have a LIFECYCLE (status fields, state transitions like draft→active→completed)?
+- What data needs COMPUTATION (aggregations, statistics, summaries, dashboards)?
+- What business rules need VALIDATION (prevent invalid state, check prerequisites, enforce limits)?
+- What actions trigger SIDE EFFECTS on other entities (lifecycle hooks)?
+
+Break this into 3-6 implementation steps. Output a JSON array.
 
 Rules:
-- Each step should be small enough to implement independently
-- Start with tables/schemas, then routes, then seed data
-- Each step description should be specific and actionable
-- Output ONLY the JSON array, no other text`, userRequest)
+- Step 1: Design ALL tables with proper relationships (foreign keys, join tables where needed)
+- Middle steps: Group routes by DOMAIN MODULE, not by HTTP verb. Each step should implement one business capability with its routes AND scripts.
+- At least 2 steps MUST include non-CRUD routes: state transitions (POST /resource/:id/action), computed endpoints (GET /resource/:id/stats), or validation guards.
+- Final step: Add realistic seed data that demonstrates the business logic.
+- Each step description must be SPECIFIC — name the tables, routes, and business logic.
+
+BAD example (too generic, pure CRUD):
+["Create users table", "Add CRUD routes for users", "Create posts table", "Add CRUD routes for posts"]
+
+GOOD example (domain-aware, professional):
+["Create tables: users (with role field), projects (with status: draft/active/archived), tasks (with priority, assignee_id FK, due_date, status: todo/in_progress/done)", "Add user management routes: CRUD + GET /users/:id/assigned-tasks (computed aggregation)", "Add project lifecycle routes: CRUD + POST /projects/:id/activate (draft→active) + POST /projects/:id/archive with validation (no open tasks)", "Add task management routes: CRUD + PATCH /tasks/:id/assign (updates assignee, validates user exists) + PATCH /tasks/:id/complete (marks done, updates project progress)", "Add dashboard routes: GET /projects/:id/stats (task counts by status, overdue count, completion percentage) + GET /users/:id/workload (assigned task summary)", "Add seed data: 3 users (admin, manager, developer), 2 projects with tasks in various states"]
+
+Output ONLY the JSON array, no other text.`, userRequest)
 }
 
-// ExtractPlan extracts a JSON array of step descriptions from LLM output.
+// ExtractPlan parses a JSON array of step descriptions from LLM output.
+// Handles both ["step1", "step2"] and [{"step": "step1"}, ...] formats.
 func ExtractPlan(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 
@@ -350,14 +303,44 @@ func ExtractPlan(raw string) ([]string, error) {
 		return nil, fmt.Errorf("no JSON array found in plan response")
 	}
 
+	arrayJSON := []byte(raw[start : end+1])
+
+	// Try as string array first
 	var steps []string
-	if err := json.Unmarshal([]byte(raw[start:end+1]), &steps); err != nil {
-		return nil, fmt.Errorf("parse plan: %w", err)
+	if err := json.Unmarshal(arrayJSON, &steps); err == nil && len(steps) > 0 {
+		return steps, nil
 	}
-	if len(steps) == 0 {
-		return nil, fmt.Errorf("plan has no steps")
+
+	// Try as array of objects — extract first string value from each
+	var objects []map[string]any
+	if err := json.Unmarshal(arrayJSON, &objects); err == nil && len(objects) > 0 {
+		var extracted []string
+		for _, obj := range objects {
+			// Try common keys: step, description, name, title, text
+			for _, key := range []string{"step", "description", "name", "title", "text"} {
+				if v, ok := obj[key]; ok {
+					if s, ok := v.(string); ok && s != "" {
+						extracted = append(extracted, s)
+						break
+					}
+				}
+			}
+			// Fallback: use the first string value found
+			if len(extracted) < len(objects) {
+				for _, v := range obj {
+					if s, ok := v.(string); ok && s != "" {
+						extracted = append(extracted, s)
+						break
+					}
+				}
+			}
+		}
+		if len(extracted) > 0 {
+			return extracted, nil
+		}
 	}
-	return steps, nil
+
+	return nil, fmt.Errorf("no JSON array found in plan response")
 }
 
 // ExtractJSON finds and extracts a JSON object from LLM output.

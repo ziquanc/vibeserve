@@ -18,12 +18,22 @@ type ConversationModel struct {
 	focused         bool
 	scrollOffset    int
 	proposalPending bool
+
+	// Input history (up/down arrow navigation)
+	history      []string
+	historyIndex int // -1 means "not browsing history" (showing current input)
+	savedInput   string // saves current input when entering history
+
+	// Message queueing — prevent concurrent AI requests
+	processing bool
+	queued     string // pending message while AI is processing
 }
 
 // NewConversationModel creates an empty ConversationModel.
 func NewConversationModel() ConversationModel {
 	return ConversationModel{
-		focused: true,
+		focused:      true,
+		historyIndex: -1,
 	}
 }
 
@@ -44,22 +54,41 @@ func (m *ConversationModel) AddMessage(msg Message) {
 	m.scrollToBottom()
 }
 
-// RemoveLastEphemeral removes the most recent ephemeral system message.
-// Ephemeral messages are transient status indicators like "Thinking..." or "Applying blueprint...".
-// Non-ephemeral system messages (like auto-fix results) are preserved.
-func (m *ConversationModel) RemoveLastEphemeral() {
+// RemoveLastSystem removes the most recent system message (used to clear "Thinking...").
+func (m *ConversationModel) RemoveLastSystem() {
 	for i := len(m.messages) - 1; i >= 0; i-- {
-		if m.messages[i].Role == RoleSystem && m.messages[i].Ephemeral {
+		if m.messages[i].Role == RoleSystem {
 			m.messages = append(m.messages[:i], m.messages[i+1:]...)
 			return
 		}
 	}
 }
 
-// UpdateLastEphemeral updates the content of the most recent ephemeral system message.
-func (m *ConversationModel) UpdateLastEphemeral(content string) {
+// RemoveLastEphemeral removes the most recent ephemeral system message
+// (like "Thinking..." or "Generating...") but preserves non-ephemeral ones (like "Auto-fix: ...").
+func (m *ConversationModel) RemoveLastEphemeral() {
 	for i := len(m.messages) - 1; i >= 0; i-- {
-		if m.messages[i].Role == RoleSystem && m.messages[i].Ephemeral {
+		if m.messages[i].Role == RoleSystem {
+			content := m.messages[i].Content
+			// Ephemeral messages are short status indicators
+			if strings.HasPrefix(content, "Thinking") ||
+				strings.HasPrefix(content, "Generating") ||
+				strings.HasPrefix(content, "Refining") ||
+				strings.HasPrefix(content, "Enhancing") ||
+				strings.HasPrefix(content, "Applying") ||
+				strings.HasPrefix(content, "Undoing") ||
+				strings.HasPrefix(content, "Queued") {
+				m.messages = append(m.messages[:i], m.messages[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
+// UpdateLastSystem updates the content of the most recent system message.
+func (m *ConversationModel) UpdateLastSystem(content string) {
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].Role == RoleSystem {
 			m.messages[i].Content = content
 			return
 		}
@@ -79,20 +108,65 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
+		case "up":
+			// Browse input history
+			if len(m.history) == 0 {
+				return m, nil
+			}
+			if m.historyIndex == -1 {
+				// Entering history — save current input
+				m.savedInput = m.input
+				m.historyIndex = len(m.history) - 1
+			} else if m.historyIndex > 0 {
+				m.historyIndex--
+			}
+			m.input = m.history[m.historyIndex]
+			m.cursorPos = len(m.input)
+			return m, nil
+
+		case "down":
+			// Browse input history forward
+			if m.historyIndex == -1 {
+				return m, nil
+			}
+			if m.historyIndex < len(m.history)-1 {
+				m.historyIndex++
+				m.input = m.history[m.historyIndex]
+			} else {
+				// Past end of history — restore saved input
+				m.historyIndex = -1
+				m.input = m.savedInput
+			}
+			m.cursorPos = len(m.input)
+			return m, nil
+
 		case "enter":
 			trimmed := strings.TrimSpace(m.input)
 			if trimmed == "" {
 				return m, nil
 			}
+
+			// Save to history
+			m.history = append(m.history, trimmed)
+			m.historyIndex = -1
+			m.savedInput = ""
 			m.input = ""
 			m.cursorPos = 0
+
+			// If AI is processing, queue this message
+			if m.processing && !m.proposalPending {
+				m.queued = trimmed
+				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+				m.AddMessage(Message{Role: RoleSystem, Content: "Queued — waiting for current request to finish..."})
+				return m, nil
+			}
 
 			// Handle slash commands
 			lower := strings.ToLower(trimmed)
 			switch {
 			case lower == "/undo":
 				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
-				m.AddMessage(Message{Role: RoleSystem, Content: "Undoing...", Ephemeral: true})
+				m.AddMessage(Message{Role: RoleSystem, Content: "Undoing..."})
 				return m, func() tea.Msg { return UndoRequestMsg{} }
 			case lower == "/quit" || lower == "/exit":
 				return m, tea.Quit
@@ -116,21 +190,22 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 						m.proposalPending = false
 						m.AddMessage(Message{Role: RoleSystem, Content: "Blueprint cancelled."})
 						return m, func() tea.Msg { return BlueprintCancelMsg{} }
-				case lower == "enhance":
-					m.AddMessage(Message{Role: RoleUser, Content: trimmed})
-					m.AddMessage(Message{Role: RoleSystem, Content: "Enhancing blueprint...", Ephemeral: true})
-					return m, func() tea.Msg {
-						return BlueprintRefineMsg{Feedback: "The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules."}
-					}
-				default:
-					m.AddMessage(Message{Role: RoleUser, Content: trimmed})
-					m.AddMessage(Message{Role: RoleSystem, Content: "Refining blueprint...", Ephemeral: true})
-					return m, func() tea.Msg {
-						return BlueprintRefineMsg{Feedback: trimmed}
-					}
+					case lower == "enhance":
+						m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+						m.AddMessage(Message{Role: RoleSystem, Content: "Enhancing blueprint..."})
+						return m, func() tea.Msg {
+							return BlueprintRefineMsg{Feedback: "The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules."}
+						}
+					default:
+						m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+						m.AddMessage(Message{Role: RoleSystem, Content: "Refining blueprint..."})
+						return m, func() tea.Msg {
+							return BlueprintRefineMsg{Feedback: trimmed}
+						}
 					}
 				}
 				// Send as prompt to AI
+				m.processing = true
 				return m, func() tea.Msg { return SubmitPromptMsg(trimmed) }
 			}
 
@@ -144,11 +219,13 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 			if m.cursorPos > 0 {
 				m.cursorPos--
 			}
+			m.historyIndex = -1 // exit history browsing on horizontal movement
 
 		case "right":
 			if m.cursorPos < len(m.input) {
 				m.cursorPos++
 			}
+			m.historyIndex = -1
 
 		case "home", "ctrl+a":
 			m.cursorPos = 0
@@ -247,9 +324,6 @@ func (m ConversationModel) renderWelcome(height int) string {
 }
 
 // renderMessages renders the scrollable message list.
-// Unlike a fixed-height window, this renders all messages and shows only the
-// bottom portion that fits in the viewport — like Claude Code's append-only
-// scrolling. Old messages scroll up and out of view naturally.
 func (m ConversationModel) renderMessages(height int) string {
 	if len(m.messages) == 0 {
 		return m.renderWelcome(height)
@@ -290,34 +364,26 @@ func (m ConversationModel) renderMessages(height int) string {
 		lines = append(lines, "") // blank line between messages
 	}
 
-	// Calculate how many lines we can show (viewport)
-	viewportHeight := height
-	if viewportHeight < 1 {
-		viewportHeight = 1
+	// Apply scroll offset
+	visibleStart := m.scrollOffset
+	if visibleStart > len(lines) {
+		visibleStart = len(lines)
+	}
+	visibleLines := lines[visibleStart:]
+
+	// Truncate to fit height
+	if len(visibleLines) > height {
+		visibleLines = visibleLines[len(visibleLines)-height:]
 	}
 
-	// If total content fits in viewport, just show it all (no scrolling needed)
-	if len(lines) <= viewportHeight {
-		return lipgloss.NewStyle().
-			Width(m.width).
-			Render(strings.Join(lines, "\n"))
+	// Pad if too few lines
+	for len(visibleLines) < height {
+		visibleLines = append([]string{""}, visibleLines...)
 	}
-
-	// Content exceeds viewport — show the bottom portion
-	// scrollOffset moves the viewport UP from the bottom (scroll into history)
-	maxScroll := len(lines) - viewportHeight
-	scrollStart := maxScroll - m.scrollOffset
-	if scrollStart < 0 {
-		scrollStart = 0
-	}
-	if scrollStart > maxScroll {
-		scrollStart = maxScroll
-	}
-
-	visibleLines := lines[scrollStart : scrollStart+viewportHeight]
 
 	return lipgloss.NewStyle().
 		Width(m.width).
+		Height(height).
 		Render(strings.Join(visibleLines, "\n"))
 }
 
@@ -389,28 +455,9 @@ func (m *ConversationModel) scrollDown(n int) {
 
 func (m ConversationModel) countTotalLines() int {
 	count := 0
-	contentWidth := m.width - 4
-	if contentWidth < 10 {
-		contentWidth = 10
+	for range m.messages {
+		count += 2 // rough estimate: each message ~ 1 line + blank
 	}
-	for _, msg := range m.messages {
-		// Count actual rendered lines by wrapping
-		var rendered string
-		switch msg.Role {
-		case RoleUser:
-			rendered = "You: " + msg.Content
-		case RoleAssistant:
-			rendered = "VibeServe: " + msg.Content
-		case RoleSystem:
-			rendered = msg.Content
-		case RoleError:
-			rendered = msg.Content
-		}
-		// Count newlines + account for wrapping
-		lineCount := len(strings.Split(rendered, "\n"))
-		count += lineCount + 1 // +1 for blank separator
-	}
-	_ = contentWidth // width used for future wrapping calc
 	return count
 }
 
