@@ -66,6 +66,7 @@ func (m RootModel) Init() tea.Cmd {
 		return tea.RequestWindowSize()
 	}
 	return tea.Batch(
+		tea.ClearScreen,
 		requestSize,
 		m.conversation.Init(),
 	)
@@ -161,14 +162,14 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// User pressed Enter with a non-empty prompt
 		prompt := string(msg)
 		m.conversation.AddMessage(Message{Role: RoleUser, Content: prompt})
-		m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Thinking..."})
+		m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Thinking...", Ephemeral: true})
 
 		cmd := m.applyPrompt(prompt)
 		cmds = append(cmds, cmd)
 
 	case ApplyResultMsg:
 		// Remove the "Thinking..." message
-		m.conversation.RemoveLastSystem()
+		m.conversation.RemoveLastEphemeral()
 
 		if msg.Err != nil {
 			m.conversation.AddMessage(Message{
@@ -188,7 +189,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case BlueprintProposedMsg:
-		m.conversation.RemoveLastSystem()
+		m.conversation.RemoveLastEphemeral()
 		m.conversation.proposalPending = true
 
 		summary := engine.FormatBlueprintSummary(msg.Blueprint)
@@ -209,7 +210,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case BlueprintApproveMsg:
 		m.conversation.proposalPending = false
-		m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Applying blueprint..."})
+		m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Applying blueprint...", Ephemeral: true})
 		cmd := m.approveBlueprint()
 		cmds = append(cmds, cmd)
 
@@ -223,7 +224,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case BlueprintAppliedMsg:
-		m.conversation.RemoveLastSystem()
+		m.conversation.RemoveLastEphemeral()
 		if msg.Err != nil {
 			m.conversation.AddMessage(Message{
 				Role:    RoleError,
@@ -245,7 +246,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case UndoResultMsg:
-		m.conversation.RemoveLastSystem()
+		m.conversation.RemoveLastEphemeral()
 		if msg.Err != nil {
 			m.conversation.AddMessage(Message{
 				Role:    RoleError,
@@ -259,11 +260,11 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case StreamingChunkMsg:
-		// Update the last system message with streaming progress
-		m.conversation.UpdateLastSystem(msg.Text)
+		// Update the last ephemeral system message with streaming progress
+		m.conversation.UpdateLastEphemeral(msg.Text)
 
 	case PlanCreatedMsg:
-		m.conversation.RemoveLastSystem()
+		m.conversation.RemoveLastEphemeral()
 		m.conversation.AddMessage(Message{
 			Role:    RoleSystem,
 			Content: fmt.Sprintf("Plan: %d steps to execute", len(msg.Steps)),
@@ -278,10 +279,13 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StepProgressMsg:
 		if !msg.Done {
 			m.conversation.AddMessage(Message{
-				Role:    RoleSystem,
-				Content: fmt.Sprintf("Step %d/%d: %s...", msg.Index, msg.Total, msg.Description),
+				Role:      RoleSystem,
+				Content:   fmt.Sprintf("Step %d/%d: %s...", msg.Index, msg.Total, msg.Description),
+				Ephemeral: true,
 			})
 		} else {
+			// Remove the "Step X/Y: ..." ephemeral message
+			m.conversation.RemoveLastEphemeral()
 			summary := msg.Summary
 			if summary == "" || summary == "no changes" {
 				summary = "generated"

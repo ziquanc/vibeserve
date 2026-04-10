@@ -44,20 +44,22 @@ func (m *ConversationModel) AddMessage(msg Message) {
 	m.scrollToBottom()
 }
 
-// RemoveLastSystem removes the most recent system message (used to clear "Thinking...").
-func (m *ConversationModel) RemoveLastSystem() {
+// RemoveLastEphemeral removes the most recent ephemeral system message.
+// Ephemeral messages are transient status indicators like "Thinking..." or "Applying blueprint...".
+// Non-ephemeral system messages (like auto-fix results) are preserved.
+func (m *ConversationModel) RemoveLastEphemeral() {
 	for i := len(m.messages) - 1; i >= 0; i-- {
-		if m.messages[i].Role == RoleSystem {
+		if m.messages[i].Role == RoleSystem && m.messages[i].Ephemeral {
 			m.messages = append(m.messages[:i], m.messages[i+1:]...)
 			return
 		}
 	}
 }
 
-// UpdateLastSystem updates the content of the most recent system message.
-func (m *ConversationModel) UpdateLastSystem(content string) {
+// UpdateLastEphemeral updates the content of the most recent ephemeral system message.
+func (m *ConversationModel) UpdateLastEphemeral(content string) {
 	for i := len(m.messages) - 1; i >= 0; i-- {
-		if m.messages[i].Role == RoleSystem {
+		if m.messages[i].Role == RoleSystem && m.messages[i].Ephemeral {
 			m.messages[i].Content = content
 			return
 		}
@@ -90,7 +92,7 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 			switch {
 			case lower == "/undo":
 				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
-				m.AddMessage(Message{Role: RoleSystem, Content: "Undoing..."})
+				m.AddMessage(Message{Role: RoleSystem, Content: "Undoing...", Ephemeral: true})
 				return m, func() tea.Msg { return UndoRequestMsg{} }
 			case lower == "/quit" || lower == "/exit":
 				return m, tea.Quit
@@ -114,18 +116,18 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 						m.proposalPending = false
 						m.AddMessage(Message{Role: RoleSystem, Content: "Blueprint cancelled."})
 						return m, func() tea.Msg { return BlueprintCancelMsg{} }
-					case lower == "enhance":
-						m.AddMessage(Message{Role: RoleUser, Content: trimmed})
-						m.AddMessage(Message{Role: RoleSystem, Content: "Enhancing blueprint..."})
-						return m, func() tea.Msg {
-							return BlueprintRefineMsg{Feedback: "The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules."}
-						}
-					default:
-						m.AddMessage(Message{Role: RoleUser, Content: trimmed})
-						m.AddMessage(Message{Role: RoleSystem, Content: "Refining blueprint..."})
-						return m, func() tea.Msg {
-							return BlueprintRefineMsg{Feedback: trimmed}
-						}
+				case lower == "enhance":
+					m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+					m.AddMessage(Message{Role: RoleSystem, Content: "Enhancing blueprint...", Ephemeral: true})
+					return m, func() tea.Msg {
+						return BlueprintRefineMsg{Feedback: "The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules."}
+					}
+				default:
+					m.AddMessage(Message{Role: RoleUser, Content: trimmed})
+					m.AddMessage(Message{Role: RoleSystem, Content: "Refining blueprint...", Ephemeral: true})
+					return m, func() tea.Msg {
+						return BlueprintRefineMsg{Feedback: trimmed}
+					}
 					}
 				}
 				// Send as prompt to AI
@@ -245,6 +247,9 @@ func (m ConversationModel) renderWelcome(height int) string {
 }
 
 // renderMessages renders the scrollable message list.
+// Unlike a fixed-height window, this renders all messages and shows only the
+// bottom portion that fits in the viewport — like Claude Code's append-only
+// scrolling. Old messages scroll up and out of view naturally.
 func (m ConversationModel) renderMessages(height int) string {
 	if len(m.messages) == 0 {
 		return m.renderWelcome(height)
@@ -285,26 +290,34 @@ func (m ConversationModel) renderMessages(height int) string {
 		lines = append(lines, "") // blank line between messages
 	}
 
-	// Apply scroll offset
-	visibleStart := m.scrollOffset
-	if visibleStart > len(lines) {
-		visibleStart = len(lines)
-	}
-	visibleLines := lines[visibleStart:]
-
-	// Truncate to fit height
-	if len(visibleLines) > height {
-		visibleLines = visibleLines[len(visibleLines)-height:]
+	// Calculate how many lines we can show (viewport)
+	viewportHeight := height
+	if viewportHeight < 1 {
+		viewportHeight = 1
 	}
 
-	// Pad if too few lines
-	for len(visibleLines) < height {
-		visibleLines = append([]string{""}, visibleLines...)
+	// If total content fits in viewport, just show it all (no scrolling needed)
+	if len(lines) <= viewportHeight {
+		return lipgloss.NewStyle().
+			Width(m.width).
+			Render(strings.Join(lines, "\n"))
 	}
+
+	// Content exceeds viewport — show the bottom portion
+	// scrollOffset moves the viewport UP from the bottom (scroll into history)
+	maxScroll := len(lines) - viewportHeight
+	scrollStart := maxScroll - m.scrollOffset
+	if scrollStart < 0 {
+		scrollStart = 0
+	}
+	if scrollStart > maxScroll {
+		scrollStart = maxScroll
+	}
+
+	visibleLines := lines[scrollStart : scrollStart+viewportHeight]
 
 	return lipgloss.NewStyle().
 		Width(m.width).
-		Height(height).
 		Render(strings.Join(visibleLines, "\n"))
 }
 
@@ -376,9 +389,28 @@ func (m *ConversationModel) scrollDown(n int) {
 
 func (m ConversationModel) countTotalLines() int {
 	count := 0
-	for range m.messages {
-		count += 2 // rough estimate: each message ~ 1 line + blank
+	contentWidth := m.width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
 	}
+	for _, msg := range m.messages {
+		// Count actual rendered lines by wrapping
+		var rendered string
+		switch msg.Role {
+		case RoleUser:
+			rendered = "You: " + msg.Content
+		case RoleAssistant:
+			rendered = "VibeServe: " + msg.Content
+		case RoleSystem:
+			rendered = msg.Content
+		case RoleError:
+			rendered = msg.Content
+		}
+		// Count newlines + account for wrapping
+		lineCount := len(strings.Split(rendered, "\n"))
+		count += lineCount + 1 // +1 for blank separator
+	}
+	_ = contentWidth // width used for future wrapping calc
 	return count
 }
 

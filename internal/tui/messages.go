@@ -16,6 +16,7 @@ const (
 type Message struct {
 	Role    Role
 	Content string
+	Ephemeral bool // if true, this is a transient status message (e.g. "Thinking...") that should be removed by RemoveLastEphemeral
 }
 
 // SubmitPromptMsg is sent when the user submits a prompt.

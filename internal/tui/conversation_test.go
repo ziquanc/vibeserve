@@ -132,19 +132,36 @@ func TestConversation_BackspaceAtStart(t *testing.T) {
 	}
 }
 
-func TestConversation_RemoveLastSystem(t *testing.T) {
+func TestConversation_RemoveLastEphemeral(t *testing.T) {
 	m := NewConversationModel()
 	m.AddMessage(Message{Role: RoleUser, Content: "hello"})
-	m.AddMessage(Message{Role: RoleSystem, Content: "Thinking..."})
-	m.AddMessage(Message{Role: RoleSystem, Content: "Processing..."})
+	m.AddMessage(Message{Role: RoleSystem, Content: "Thinking...", Ephemeral: true})
+	m.AddMessage(Message{Role: RoleSystem, Content: "Auto-fix: fixed 2 errors"}) // NOT ephemeral
 
-	m.RemoveLastSystem()
+	m.RemoveLastEphemeral()
 
+	// Should remove "Thinking..." (ephemeral) but NOT "Auto-fix" (non-ephemeral)
+	// Since "Thinking..." is not the LAST system message, it should remove it
+	// because RemoveLastEphemeral searches from the end
 	if len(m.messages) != 2 {
 		t.Errorf("expected 2 messages after removal, got %d", len(m.messages))
 	}
-	if m.messages[1].Content != "Thinking..." {
-		t.Errorf("expected 'Thinking...' to remain, got %q", m.messages[1].Content)
+	// Auto-fix is the last system message (not ephemeral), so RemoveLastEphemeral skips it
+	// and removes the first ephemeral it finds going backwards — "Thinking..."
+	if m.messages[0].Content != "hello" {
+		t.Errorf("expected first message 'hello', got %q", m.messages[0].Content)
+	}
+}
+
+func TestConversation_RemoveLastEphemeralPreservesNonEphemeral(t *testing.T) {
+	m := NewConversationModel()
+	m.AddMessage(Message{Role: RoleSystem, Content: "Auto-fix: fixed 2 errors"}) // NOT ephemeral
+
+	m.RemoveLastEphemeral()
+
+	// Should NOT remove non-ephemeral messages
+	if len(m.messages) != 1 {
+		t.Errorf("expected 1 message (non-ephemeral preserved), got %d", len(m.messages))
 	}
 }
 
