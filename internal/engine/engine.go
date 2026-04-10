@@ -74,6 +74,36 @@ func (e *Engine) History() []llm.Message {
 	return e.history
 }
 
+// Provider returns the LLM provider.
+func (e *Engine) Provider() llm.Provider {
+	return e.provider
+}
+
+// Bus returns the event bus.
+func (e *Engine) Bus() *Bus {
+	return e.bus
+}
+
+// Scripts returns the scripts map.
+func (e *Engine) Scripts() map[string]string {
+	return e.scripts
+}
+
+// Store returns the schema store.
+func (e *Engine) Store() SchemaStore {
+	return e.store
+}
+
+// Trie returns the route trie.
+func (e *Engine) Trie() RouteTrie {
+	return e.trie
+}
+
+// SetScripts replaces the scripts map (used by proxy to add new scripts).
+func (e *Engine) SetScripts(s map[string]string) {
+	e.scripts = s
+}
+
 // Apply processes a user prompt through the full pipeline and PROPOSES a blueprint:
 // 1. Emit UserPromptReceived
 // 2. Call LLM to generate manifest (with planning if needed)
@@ -329,8 +359,14 @@ func (e *Engine) Undo() error {
 
 	e.bus.Publish(Event{Type: EventSnapshotRestored, Data: snap})
 
-	// Reload the previous manifest if available
+	// Restore the previous manifest: copy manifest.prev.json over manifest.json,
+	// then load it.
+	prevPath := filepath.Join(e.vibeDir, "manifest.prev.json")
 	manifestPath := filepath.Join(e.vibeDir, "manifest.json")
+	if prevData, err := os.ReadFile(prevPath); err == nil {
+		_ = os.WriteFile(manifestPath, prevData, 0o644)
+	}
+
 	if prev, err := manifest.LoadFromFile(manifestPath); err == nil {
 		// Remove the last change from history
 		if len(e.history) >= 2 {
@@ -343,16 +379,25 @@ func (e *Engine) Undo() error {
 }
 
 // saveManifest writes the current manifest to .vibe/manifest.json.
+// It first backs up the existing manifest.json to manifest.prev.json so that
+// Undo() can restore both the DB snapshot and the previous manifest.
 func (e *Engine) saveManifest() error {
 	if e.vibeDir == "" {
 		return nil
 	}
+	manifestPath := filepath.Join(e.vibeDir, "manifest.json")
+	prevPath := filepath.Join(e.vibeDir, "manifest.prev.json")
+
+	// Back up the current manifest before overwriting.
+	if existing, err := os.ReadFile(manifestPath); err == nil {
+		_ = os.WriteFile(prevPath, existing, 0o644)
+	}
+
 	data, err := json.MarshalIndent(e.manifest, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(e.vibeDir, "manifest.json")
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(manifestPath, data, 0o644)
 }
 
 // repairManifest fills in common fields that LLMs often omit.
@@ -509,4 +554,44 @@ func FormatChangeSummary(result *ApplyResult) string {
 	}
 
 	return b.String()
+}
+
+// ApplyAutoApprove runs the full Apply pipeline but auto-approves the blueprint
+// without requiring user interaction. This is used by the proxy/auto-evolve mode.
+// It returns the ApplyResult from applying the generated manifest.
+func (e *Engine) ApplyAutoApprove(ctx context.Context, prompt string) (*ApplyResult, error) {
+	// Clear any pending blueprint first
+	e.pendingBlueprint = nil
+
+	// Direct LLM generation without planning (for speed in proxy mode)
+	e.bus.Publish(Event{Type: EventUserPromptReceived, Data: prompt})
+	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: prompt})
+
+	newManifest, err := e.provider.Generate(ctx, e.manifest, prompt, e.history)
+	if err != nil {
+		if chatErr, ok := err.(*llm.ChatOnlyError); ok {
+			return nil, fmt.Errorf("LLM returned conversational text instead of manifest: %s", chatErr.Text[:min(200, len(chatErr.Text))])
+		}
+		return nil, fmt.Errorf("LLM generation failed: %w", err)
+	}
+
+	if newManifest == nil {
+		return nil, fmt.Errorf("LLM returned nil manifest")
+	}
+
+	// Propose and immediately approve
+	bp, err := e.proposeBlueprint(newManifest)
+	if err != nil {
+		return nil, fmt.Errorf("propose blueprint: %w", err)
+	}
+
+	// Clear pending so ApproveBlueprint can consume it
+	_ = bp
+
+	result, err := e.ApproveBlueprint(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("approve blueprint: %w", err)
+	}
+
+	return result, nil
 }

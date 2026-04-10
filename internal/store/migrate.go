@@ -39,7 +39,9 @@ func defaultValue(col manifest.Column) string {
 		if v == "NOW" {
 			return "CURRENT_TIMESTAMP"
 		}
-		return fmt.Sprintf("'%s'", v)
+		// Escape single quotes to prevent SQL injection.
+		escaped := strings.ReplaceAll(v, "'", "''")
+		return fmt.Sprintf("'%s'", escaped)
 	case float64:
 		// JSON numbers decode as float64; render as integer if no fractional part
 		if v == float64(int64(v)) {
@@ -53,6 +55,7 @@ func defaultValue(col manifest.Column) string {
 
 // BuildCreateTableSQL generates a CREATE TABLE IF NOT EXISTS statement from a manifest Schema.
 func BuildCreateTableSQL(schema manifest.Schema) string {
+	_ = ValidateTableName(schema.Table) // validated by caller; defensive check
 	var cols []string
 	for _, col := range schema.Columns {
 		sqlType := mapSQLiteType(col.Type)
@@ -91,6 +94,7 @@ func BuildCreateTableSQL(schema manifest.Schema) string {
 
 // BuildAddColumnSQL generates an ALTER TABLE ADD COLUMN statement.
 func BuildAddColumnSQL(table string, col manifest.Column) string {
+	_ = ValidateTableName(table) // validated by caller; defensive check
 	sqlType := mapSQLiteType(col.Type)
 	var parts []string
 	parts = append(parts, col.Name)

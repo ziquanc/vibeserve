@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -188,5 +189,145 @@ func TestHandlerCORSHeaders(t *testing.T) {
 	}
 	if resp.Header.Get("Access-Control-Allow-Origin") != "*" {
 		t.Error("expected Access-Control-Allow-Origin: * on regular response")
+	}
+}
+
+// --- Proxy mode tests ---
+
+func TestHandlerProxyModeUnmatchedRoute(t *testing.T) {
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	scripts := map[string]string{
+		"list_items": `
+result := db.query("SELECT * FROM items", [])
+response.json(result)
+`,
+	}
+
+	tr := NewTrie()
+	rt := runtime.New(s, engine.NewBus())
+
+	// Create a mock proxy handler that registers a route and returns the retry signal.
+	called := false
+	proxyFn := func(ctx context.Context, method, path string, body map[string]any, queryParams map[string]string, headers map[string]string) (int, map[string]any, map[string]string, error) {
+		called = true
+		if method != "GET" || path != "/users" {
+			t.Errorf("unexpected proxy call: %s %s", method, path)
+		}
+
+		// Simulate registering the route (as the real ProxyEngine would do)
+		scripts["list_users"] = `result := db.query("SELECT * FROM users", [])
+response.json(result)`
+		tr.Insert("GET", "/users", "list_users")
+
+		// Return retry signal
+		return 0, map[string]any{"__vibeserve_retry__": true}, map[string]string{"X-VibeServe-Generated": "true"}, nil
+	}
+
+	handler := NewProxyHandler(tr, scripts, rt, false, proxyFn)
+
+	// First request to /users should trigger proxy
+	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if !called {
+		t.Error("expected proxy handler to be called")
+	}
+
+	// Since there's no users table, the script will error, but the proxy mechanism worked
+	// The important thing is the proxy was invoked, not a 404
+
+	// Second request to /users should NOT trigger proxy (route is now registered)
+	called = false
+	req2 := httptest.NewRequest(http.MethodGet, "/users", nil)
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+
+	if called {
+		t.Error("expected proxy handler NOT to be called on second request")
+	}
+}
+
+func TestHandlerProxyModeSystemPathsSkipped(t *testing.T) {
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	tr := NewTrie()
+	scripts := map[string]string{}
+	rt := runtime.New(s, engine.NewBus())
+
+	proxyCalled := false
+	proxyFn := func(ctx context.Context, method, path string, body map[string]any, queryParams map[string]string, headers map[string]string) (int, map[string]any, map[string]string, error) {
+		proxyCalled = true
+		return 200, map[string]any{"ok": true}, nil, nil
+	}
+
+	handler := NewProxyHandler(tr, scripts, rt, false, proxyFn)
+
+	systemPaths := []string{"/_console", "/_api/something", "/_blueprint", "/_swagger", "/_ws"}
+	for _, path := range systemPaths {
+		proxyCalled = false
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if proxyCalled {
+			t.Errorf("expected proxy NOT to be called for system path %s", path)
+		}
+	}
+}
+
+func TestIsSystemPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		{"/_console", true},
+		{"/_console/foo", true},
+		{"/_api/something", true},
+		{"/_blueprint", true},
+		{"/_swagger", true},
+		{"/_ws", true},
+		{"/users", false},
+		{"/items/123", false},
+		{"/api/v1/users", false},
+	}
+	for _, tt := range tests {
+		result := isSystemPath(tt.path)
+		if result != tt.expected {
+			t.Errorf("isSystemPath(%q) = %v, want %v", tt.path, result, tt.expected)
+		}
+	}
+}
+
+func TestHandlerNoProxyReturns404(t *testing.T) {
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	tr := NewTrie()
+	scripts := map[string]string{}
+	rt := runtime.New(s, engine.NewBus())
+
+	// No proxy handler — should return 404
+	handler := NewProxyHandler(tr, scripts, rt, false, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 without proxy, got %d", resp.StatusCode)
 	}
 }

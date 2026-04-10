@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 
 	_ "modernc.org/sqlite" // register "sqlite" driver
@@ -10,6 +11,17 @@ import (
 	"github.com/vibeserve/vibeserve/internal/engine"
 	"github.com/vibeserve/vibeserve/internal/manifest"
 )
+
+// validTableName matches only alphanumeric and underscore characters.
+var validTableName = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+// ValidateTableName rejects table names that could enable SQL injection.
+func ValidateTableName(table string) error {
+	if !validTableName.MatchString(table) {
+		return fmt.Errorf("invalid table name: %q (only [a-zA-Z0-9_] allowed)", table)
+	}
+	return nil
+}
 
 // Compile-time check that *Store satisfies engine.DataStore.
 var _ engine.DataStore = (*Store)(nil)
@@ -45,6 +57,9 @@ func New(dsn string) (*Store, error) {
 // ApplySchemas creates tables from manifest schemas and records boolean columns.
 func (s *Store) ApplySchemas(schemas []manifest.Schema) error {
 	for _, schema := range schemas {
+		if err := ValidateTableName(schema.Table); err != nil {
+			return err
+		}
 		ddl := BuildCreateTableSQL(schema)
 		if _, err := s.db.Exec(ddl); err != nil {
 			return fmt.Errorf("create table %s: %w", schema.Table, err)
@@ -62,6 +77,9 @@ func (s *Store) ApplySchemas(schemas []manifest.Schema) error {
 
 // AddColumn executes an ALTER TABLE ADD COLUMN statement for the given column.
 func (s *Store) AddColumn(table string, col manifest.Column) error {
+	if err := ValidateTableName(table); err != nil {
+		return err
+	}
 	ddl := BuildAddColumnSQL(table, col)
 	if _, err := s.db.Exec(ddl); err != nil {
 		return fmt.Errorf("add column %s.%s: %w", table, col.Name, err)
@@ -79,6 +97,9 @@ func (s *Store) DSN() string {
 
 // Seed inserts multiple rows into a table (used for initial data seeding).
 func (s *Store) Seed(table string, rows []map[string]any) error {
+	if err := ValidateTableName(table); err != nil {
+		return err
+	}
 	for _, row := range rows {
 		if _, err := s.Insert(table, row); err != nil {
 			return fmt.Errorf("seed %s: %w", table, err)
@@ -118,6 +139,9 @@ func (s *Store) QueryOne(query string, params []any) (map[string]any, error) {
 
 // Insert inserts a row into table and returns the full inserted row.
 func (s *Store) Insert(table string, data map[string]any) (map[string]any, error) {
+	if err := ValidateTableName(table); err != nil {
+		return nil, err
+	}
 	if len(data) == 0 {
 		return nil, fmt.Errorf("insert: no data provided")
 	}
@@ -168,6 +192,9 @@ func (s *Store) Insert(table string, data map[string]any) (map[string]any, error
 
 // Update updates columns in table where id matches and returns the full updated row.
 func (s *Store) Update(table string, id any, data map[string]any) (map[string]any, error) {
+	if err := ValidateTableName(table); err != nil {
+		return nil, err
+	}
 	if len(data) == 0 {
 		return nil, fmt.Errorf("update: no data provided")
 	}
@@ -211,6 +238,9 @@ func (s *Store) Update(table string, id any, data map[string]any) (map[string]an
 // Delete removes the row with the given id from table.
 // Returns true if a row was deleted, false if no row matched.
 func (s *Store) Delete(table string, id any) (bool, error) {
+	if err := ValidateTableName(table); err != nil {
+		return false, err
+	}
 	query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
 	result, err := s.db.Exec(query, id)
 	if err != nil {
@@ -225,6 +255,9 @@ func (s *Store) Delete(table string, id any) (bool, error) {
 
 // Count returns the number of rows in a table.
 func (s *Store) Count(table string) (int, error) {
+	if err := ValidateTableName(table); err != nil {
+		return 0, err
+	}
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", table)
 	var count int
 	if err := s.db.QueryRow(query).Scan(&count); err != nil {

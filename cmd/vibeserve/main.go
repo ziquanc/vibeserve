@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -34,13 +35,14 @@ func main() {
 	var host string
 	var manifestPath string
 	var configPath string
+	var proxyMode bool
 
 	rootCmd := &cobra.Command{
 		Use:   "vibeserve",
 		Short: "AI-powered stateful API backend from natural language",
 		// Default action: run dev mode (no subcommand needed)
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDev(configPath, manifestPath, host, port)
+			return runDev(configPath, manifestPath, host, port, proxyMode)
 		},
 	}
 
@@ -48,6 +50,7 @@ func main() {
 	rootCmd.Flags().StringVar(&host, "host", "", "Server host (overrides config)")
 	rootCmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
 	rootCmd.Flags().StringVarP(&configPath, "config", "c", ".vibe/config.yaml", "Path to config.yaml")
+	rootCmd.Flags().BoolVar(&proxyMode, "proxy", false, "Enable proxy/auto-evolve mode: auto-generate endpoints for unmatched routes")
 
 	rootCmd.AddCommand(upCmd())
 	rootCmd.AddCommand(versionCmd())
@@ -118,12 +121,13 @@ func devCmd() *cobra.Command {
 	var host string
 	var manifestPath string
 	var configPath string
+	var proxyMode bool
 
 	cmd := &cobra.Command{
 		Use:   "dev",
 		Short: "Start the API server in interactive REPL mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDev(configPath, manifestPath, host, port)
+			return runDev(configPath, manifestPath, host, port, proxyMode)
 		},
 	}
 
@@ -131,6 +135,7 @@ func devCmd() *cobra.Command {
 	cmd.Flags().StringVar(&host, "host", "", "Server host (overrides config)")
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
 	cmd.Flags().StringVarP(&configPath, "config", "c", ".vibe/config.yaml", "Path to config.yaml")
+	cmd.Flags().BoolVar(&proxyMode, "proxy", false, "Enable proxy/auto-evolve mode")
 
 	return cmd
 }
@@ -155,24 +160,26 @@ func exportCmd() *cobra.Command {
 	var manifestPath string
 	var force bool
 	var ai bool
+	var format string
 
 	cmd := &cobra.Command{
 		Use:   "export [output-dir]",
-		Short: "Export a standalone Go server project from the manifest",
-		Long:  "Generate a production-ready Go project with Chi routing, sqlx, and typed handlers from the current VibeServe manifest.",
+		Short: "Export a standalone server project from the manifest",
+		Long:  "Generate a production-ready project from the current VibeServe manifest. Supports Go (default) and Express.js formats.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runExport(manifestPath, args, force, ai)
+			return runExport(manifestPath, args, force, ai, format)
 		},
 	}
 
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing output directory")
 	cmd.Flags().BoolVar(&ai, "ai", false, "Use LLM to translate complex Tengo logic")
+	cmd.Flags().StringVar(&format, "format", "go", "Export format: go or express")
 
 	return cmd
 }
 
-func runExport(manifestPath string, args []string, force, ai bool) error {
+func runExport(manifestPath string, args []string, force, ai bool, format string) error {
 	// Load manifest
 	m, err := manifest.LoadFromFile(manifestPath)
 	if err != nil {
@@ -201,36 +208,64 @@ func runExport(manifestPath string, args []string, force, ai bool) error {
 		os.RemoveAll(outDir)
 	}
 
-	fmt.Printf("Exporting to %s...\n", outDir)
+	// Validate format
+	switch format {
+	case "go", "express":
+		// valid
+	default:
+		return fmt.Errorf("unsupported format %q (supported: go, express)", format)
+	}
+
+	fmt.Printf("Exporting to %s (format: %s)...\n", outDir, format)
 
 	// Run export pipeline
 	exp := export.NewExporter(m, outDir)
-	if err := exp.Run(); err != nil {
-		return fmt.Errorf("export failed: %w", err)
+
+	var exportErr error
+	switch format {
+	case "express":
+		exportErr = exp.RunExpress()
+	default:
+		exportErr = exp.Run()
+	}
+	if exportErr != nil {
+		return fmt.Errorf("export failed: %w", exportErr)
 	}
 
-	// Post-process: go mod tidy
-	fmt.Println("Running go mod tidy...")
-	tidyCmd := exec.Command("go", "mod", "tidy")
-	tidyCmd.Dir = outDir
-	if tidyOut, err := tidyCmd.CombinedOutput(); err != nil {
-		fmt.Printf("Warning: go mod tidy failed: %s\n", string(tidyOut))
-	}
+	if format == "go" {
+		// Post-process: go mod tidy
+		fmt.Println("Running go mod tidy...")
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Dir = outDir
+		if tidyOut, err := tidyCmd.CombinedOutput(); err != nil {
+			fmt.Printf("Warning: go mod tidy failed: %s\n", string(tidyOut))
+		}
 
-	// Post-process: gofmt
-	fmtCmd := exec.Command("gofmt", "-w", ".")
-	fmtCmd.Dir = outDir
-	fmtCmd.Run()
+		// Post-process: gofmt
+		fmtCmd := exec.Command("gofmt", "-w", ".")
+		fmtCmd.Dir = outDir
+		fmtCmd.Run()
+	}
 
 	// Success banner
 	fmt.Println()
 	fmt.Println("  \u2713 Export complete!")
 	fmt.Println()
-	fmt.Printf("  Your production Go server is ready at: ./%s\n", outDir)
-	fmt.Println()
-	fmt.Println("  To start:")
-	fmt.Printf("    cd %s\n", outDir)
-	fmt.Println("    go run ./cmd/api")
+	switch format {
+	case "express":
+		fmt.Printf("  Your production Express.js server is ready at: ./%s\n", outDir)
+		fmt.Println()
+		fmt.Println("  To start:")
+		fmt.Printf("    cd %s\n", outDir)
+		fmt.Println("    npm install")
+		fmt.Println("    npm start")
+	default:
+		fmt.Printf("  Your production Go server is ready at: ./%s\n", outDir)
+		fmt.Println()
+		fmt.Println("  To start:")
+		fmt.Printf("    cd %s\n", outDir)
+		fmt.Println("    go run ./cmd/api")
+	}
 	fmt.Println()
 	fmt.Println("  Check README.md for API documentation.")
 	fmt.Println()
@@ -368,7 +403,7 @@ func runSetup(configPath string) (*config.Config, error) {
 	return cfg, nil
 }
 
-func runDev(configPath, manifestPath, host string, port int) error {
+func runDev(configPath, manifestPath, host string, port int, proxyMode bool) error {
 	// Check if config exists — if not, run interactive setup
 	var cfg *config.Config
 	var err error
@@ -452,7 +487,6 @@ func runDev(configPath, manifestPath, host string, port int) error {
 	}
 
 	rt := runtime.New(s, bus)
-	apiHandler := router.NewHandler(trie, scripts, rt, cfg.Server.CORS)
 
 	eng := engine.NewEngine(engine.EngineConfig{
 		Bus:      bus,
@@ -466,6 +500,15 @@ func runDev(configPath, manifestPath, host string, port int) error {
 			return store.New(dsn)
 		},
 	})
+
+	var apiHandler http.Handler
+	if proxyMode {
+		proxyEng := engine.NewProxyEngine(eng)
+		apiHandler = router.NewProxyHandler(trie, scripts, rt, cfg.Server.CORS, proxyEng.HandleUnknownRequest)
+		log.Printf("Proxy/auto-evolve mode enabled — unmatched routes will be auto-generated")
+	} else {
+		apiHandler = router.NewHandler(trie, scripts, rt, cfg.Server.CORS)
+	}
 
 	consoleHandler := web.NewConsole(eng, s)
 	wsHub := web.NewWSHub(bus)
