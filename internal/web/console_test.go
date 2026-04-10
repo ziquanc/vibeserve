@@ -143,8 +143,8 @@ func TestHandleTables(t *testing.T) {
 	if tables[0].RowCount != 1 {
 		t.Errorf("expected 1 row, got %d", tables[0].RowCount)
 	}
-	if len(tables[0].Columns) != 3 {
-		t.Errorf("expected 3 columns, got %d", len(tables[0].Columns))
+	if len(tables[0].Columns) != 6 {
+		t.Errorf("expected 6 columns (3 user + 3 timestamps), got %d", len(tables[0].Columns))
 	}
 }
 

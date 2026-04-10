@@ -164,3 +164,28 @@ func TestBuildAddColumnSQL_Unique(t *testing.T) {
 		t.Errorf("expected UNIQUE: %s", sql)
 	}
 }
+
+func TestBuildCreateTableSQL_IncludesTimestamps(t *testing.T) {
+	schema := manifest.Schema{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}
+
+	sql := BuildCreateTableSQL(schema)
+
+	if !strings.Contains(sql, "created_at") {
+		t.Error("CREATE TABLE should include created_at")
+	}
+	if !strings.Contains(sql, "updated_at") {
+		t.Error("CREATE TABLE should include updated_at")
+	}
+	if !strings.Contains(sql, "deleted_at") {
+		t.Error("CREATE TABLE should include deleted_at")
+	}
+	if !strings.Contains(sql, "DEFAULT CURRENT_TIMESTAMP") {
+		t.Error("created_at and updated_at should have DEFAULT CURRENT_TIMESTAMP")
+	}
+}

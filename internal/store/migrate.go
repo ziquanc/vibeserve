@@ -55,6 +55,7 @@ func defaultValue(col manifest.Column) string {
 
 // BuildCreateTableSQL generates a CREATE TABLE IF NOT EXISTS statement from a manifest Schema.
 func BuildCreateTableSQL(schema manifest.Schema) string {
+	schema = manifest.InjectTimestamps(schema)
 	_ = ValidateTableName(schema.Table) // validated by caller; defensive check
 	var cols []string
 	for _, col := range schema.Columns {
