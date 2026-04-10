@@ -81,7 +81,7 @@ func (e *Exporter) RunExpress() error {
 		return fmt.Errorf("write Dockerfile: %w", err)
 	}
 
-	readme := GenerateExpressREADME(m)
+	readme := GenerateExpressREADME(m, dbType)
 	if err := writeFile(filepath.Join(e.outDir, "README.md"), readme); err != nil {
 		return fmt.Errorf("write README.md: %w", err)
 	}

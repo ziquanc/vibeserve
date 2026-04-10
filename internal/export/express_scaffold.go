@@ -264,7 +264,13 @@ CMD ["node", "server.js"]
 }
 
 // GenerateExpressREADME creates a README for the Express project.
-func GenerateExpressREADME(m *manifest.Manifest) string {
+// dbType is variadic for backward compatibility; defaults to "sqlite".
+func GenerateExpressREADME(m *manifest.Manifest, dbType ...string) string {
+	db := "sqlite"
+	if len(dbType) > 0 && dbType[0] != "" {
+		db = dbType[0]
+	}
+
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf("# %s\n\n", m.Name))
@@ -278,6 +284,20 @@ func GenerateExpressREADME(m *manifest.Manifest) string {
 	b.WriteString("npm install\n")
 	b.WriteString("npm start\n")
 	b.WriteString("```\n\n")
+
+	if db == "postgres" {
+		b.WriteString("## Database Setup\n\n")
+		b.WriteString("1. Create a PostgreSQL database\n")
+		b.WriteString("2. Run the schema:\n")
+		b.WriteString("   ```bash\n")
+		b.WriteString("   psql -d your_database -f schema.sql\n")
+		b.WriteString("   ```\n")
+		b.WriteString("3. Seed the data (optional):\n")
+		b.WriteString("   ```bash\n")
+		b.WriteString("   psql -d your_database -f seed.sql\n")
+		b.WriteString("   ```\n")
+		b.WriteString("4. Update `.env` with your `DATABASE_URL`\n\n")
+	}
 
 	b.WriteString("## Development\n\n")
 	b.WriteString("```bash\n")
@@ -330,7 +350,11 @@ func GenerateExpressREADME(m *manifest.Manifest) string {
 	b.WriteString("|----------|---------|-------------|\n")
 	b.WriteString("| PORT | 3000 | HTTP server port |\n")
 	b.WriteString("| NODE_ENV | development | Node environment |\n")
-	b.WriteString("| DATABASE_PATH | ./src/data/state.db | SQLite database path |\n")
+	if db == "postgres" {
+		b.WriteString("| DATABASE_URL | (required) | PostgreSQL connection string |\n")
+	} else {
+		b.WriteString("| DATABASE_PATH | ./src/data/state.db | SQLite database path |\n")
+	}
 	b.WriteString("| JWT_SECRET | (required) | Secret key for JWT signing |\n")
 	b.WriteString("| JWT_EXPIRES_IN | 24h | JWT token expiry |\n")
 	b.WriteString("| CORS_ORIGIN | * | Allowed CORS origin |\n")
