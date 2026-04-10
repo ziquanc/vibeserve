@@ -9,7 +9,7 @@ import (
 )
 
 // GeneratePackageJSON creates a package.json for the Express project.
-func GeneratePackageJSON(m *manifest.Manifest) string {
+func GeneratePackageJSON(m *manifest.Manifest, dbType string) string {
 	type PackageJSON struct {
 		Name            string            `json:"name"`
 		Version         string            `json:"version"`
@@ -18,6 +18,24 @@ func GeneratePackageJSON(m *manifest.Manifest) string {
 		Scripts         map[string]string `json:"scripts"`
 		Dependencies    map[string]string `json:"dependencies"`
 		Engines         map[string]string `json:"engines"`
+	}
+
+	deps := map[string]string{
+		"express":            "^4.21.0",
+		"helmet":             "^8.0.0",
+		"cors":               "^2.8.5",
+		"express-rate-limit": "^7.4.0",
+		"jsonwebtoken":       "^9.0.2",
+		"bcryptjs":           "^2.4.3",
+		"express-validator":  "^7.2.0",
+		"morgan":             "^1.10.0",
+		"dotenv":             "^16.4.5",
+		"compression":        "^1.7.4",
+	}
+	if dbType == "postgres" {
+		deps["pg"] = "^8.13.0"
+	} else {
+		deps["better-sqlite3"] = "^11.6.0"
 	}
 
 	pkg := PackageJSON{
@@ -30,19 +48,7 @@ func GeneratePackageJSON(m *manifest.Manifest) string {
 			"dev":       "node --watch server.js",
 			"seed":      "node src/models/database.js",
 		},
-		Dependencies: map[string]string{
-			"express":            "^4.21.0",
-			"better-sqlite3":     "^11.6.0",
-			"helmet":             "^8.0.0",
-			"cors":               "^2.8.5",
-			"express-rate-limit": "^7.4.0",
-			"jsonwebtoken":       "^9.0.2",
-			"bcryptjs":           "^2.4.3",
-			"express-validator":  "^7.2.0",
-			"morgan":             "^1.10.0",
-			"dotenv":             "^16.4.5",
-			"compression":        "^1.7.4",
-		},
+		Dependencies: deps,
 		Engines: map[string]string{
 			"node": ">=18.0.0",
 		},
@@ -58,6 +64,16 @@ func GenerateServerJS(m *manifest.Manifest) string {
 
 	b.WriteString(`const dotenv = require('dotenv');
 dotenv.config();
+
+// ─── Environment Validation ───────────────────────────────────
+const required = ['JWT_SECRET'];
+for (const key of required) {
+  if (!process.env[key]) {
+    console.error('FATAL: Missing required environment variable: ' + key);
+    console.error('Copy .env.example to .env and fill in the values.');
+    process.exit(1);
+  }
+}
 
 const express = require('express');
 const helmet = require('helmet');
@@ -79,7 +95,7 @@ app.use(helmet());
 
 // CORS with configurable origin
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -191,30 +207,22 @@ start();
 }
 
 // GenerateEnvExample creates the .env.example file.
-func GenerateEnvExample() string {
-	return `# Server
-PORT=3000
-NODE_ENV=development
-
-# Database
-DATABASE_PATH=./src/data/state.db
-
-# Security
-JWT_SECRET=change-me-to-a-random-secret
-JWT_EXPIRES_IN=24h
-
-# CORS
-CORS_ORIGIN=*
-
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX=100
-`
+func GenerateEnvExample(dbType string) string {
+	var b strings.Builder
+	b.WriteString("# Server\nPORT=3000\nNODE_ENV=development\n\n")
+	if dbType == "postgres" {
+		b.WriteString("# Database\nDATABASE_URL=postgresql://user:password@localhost:5432/mydb\n\n")
+	} else {
+		b.WriteString("# Database\nDATABASE_PATH=./src/data/state.db\n\n")
+	}
+	b.WriteString("# Security\nJWT_SECRET=\nJWT_EXPIRES_IN=24h\n\n# CORS\nCORS_ORIGIN=http://localhost:3000\n")
+	return b.String()
 }
 
 // GenerateExpressDockerfile creates a Node.js Dockerfile.
-func GenerateExpressDockerfile() string {
-	return `FROM node:20-alpine AS builder
+func GenerateExpressDockerfile(dbType string) string {
+	var b strings.Builder
+	b.WriteString(`FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -228,21 +236,27 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
-RUN mkdir -p src/data
-
-EXPOSE 3000
+`)
+	if dbType == "sqlite" {
+		b.WriteString("RUN mkdir -p src/data\n\n")
+	}
+	b.WriteString(`EXPOSE 3000
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV DATABASE_PATH=./src/data/state.db
-
+`)
+	if dbType == "sqlite" {
+		b.WriteString("ENV DATABASE_PATH=./src/data/state.db\n")
+	}
+	b.WriteString(`
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 USER node
 
 CMD ["node", "server.js"]
-`
+`)
+	return b.String()
 }
 
 // GenerateExpressREADME creates a README for the Express project.
@@ -318,6 +332,17 @@ func GenerateExpressREADME(m *manifest.Manifest) string {
 	b.WriteString("| CORS_ORIGIN | * | Allowed CORS origin |\n")
 
 	return b.String()
+}
+
+// GenerateGitignore creates a .gitignore for the Express project.
+func GenerateGitignore() string {
+	return `node_modules/
+.env
+*.db
+dist/
+coverage/
+.DS_Store
+`
 }
 
 // expressPath converts :id style params to Express-compatible format.

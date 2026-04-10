@@ -12,7 +12,7 @@ import (
 func GenerateAuthMiddleware() string {
 	return `const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-to-a-random-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
  * JWT authentication middleware.

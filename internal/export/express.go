@@ -51,7 +51,7 @@ func (e *Exporter) RunExpress() error {
 	}
 
 	// Stage 3: Generate scaffold files.
-	packageJSON := GeneratePackageJSON(m)
+	packageJSON := GeneratePackageJSON(m, "sqlite")
 	if err := writeFile(filepath.Join(e.outDir, "package.json"), packageJSON); err != nil {
 		return fmt.Errorf("write package.json: %w", err)
 	}
@@ -61,12 +61,17 @@ func (e *Exporter) RunExpress() error {
 		return fmt.Errorf("write server.js: %w", err)
 	}
 
-	envExample := GenerateEnvExample()
+	envExample := GenerateEnvExample("sqlite")
 	if err := writeFile(filepath.Join(e.outDir, ".env.example"), envExample); err != nil {
 		return fmt.Errorf("write .env.example: %w", err)
 	}
 
-	dockerfile := GenerateExpressDockerfile()
+	gitignore := GenerateGitignore()
+	if err := writeFile(filepath.Join(e.outDir, ".gitignore"), gitignore); err != nil {
+		return fmt.Errorf("write .gitignore: %w", err)
+	}
+
+	dockerfile := GenerateExpressDockerfile("sqlite")
 	if err := writeFile(filepath.Join(e.outDir, "Dockerfile"), dockerfile); err != nil {
 		return fmt.Errorf("write Dockerfile: %w", err)
 	}
