@@ -10,6 +10,13 @@ import (
 // GenerateDatabaseJS creates src/models/database.js with better-sqlite3 setup
 // and helper CRUD functions for each schema table.
 func GenerateDatabaseJS(schemas []manifest.Schema) string {
+	// Inject timestamps into all schemas.
+	injected := make([]manifest.Schema, len(schemas))
+	for i, s := range schemas {
+		injected[i] = manifest.InjectTimestamps(s)
+	}
+	schemas = injected
+
 	var b strings.Builder
 
 	b.WriteString(`const Database = require('better-sqlite3');
@@ -124,22 +131,30 @@ func generateTableHelpers(schema manifest.Schema) string {
 	// listXxx
 	b.WriteString(fmt.Sprintf("function list%s(limit = 50, offset = 0) {\n", pluralName))
 	b.WriteString("  const database = getDB();\n")
-	b.WriteString(fmt.Sprintf("  return database.prepare('SELECT * FROM %s LIMIT ? OFFSET ?').all(limit, offset);\n", schema.Table))
+	b.WriteString(fmt.Sprintf("  return database.prepare('SELECT * FROM %s WHERE deleted_at IS NULL LIMIT ? OFFSET ?').all(limit, offset);\n", schema.Table))
 	b.WriteString("}\n\n")
 
 	// getXxx
 	b.WriteString(fmt.Sprintf("function get%s(id) {\n", structName))
 	b.WriteString("  const database = getDB();\n")
-	b.WriteString(fmt.Sprintf("  return database.prepare('SELECT * FROM %s WHERE %s = ?').get(id);\n", schema.Table, pkCol))
+	b.WriteString(fmt.Sprintf("  return database.prepare('SELECT * FROM %s WHERE %s = ? AND deleted_at IS NULL').get(id);\n", schema.Table, pkCol))
 	b.WriteString("}\n\n")
 
 	// createXxx
 	nonPKCols := nonAutoPrimaryColumns(schema)
-	if len(nonPKCols) > 0 {
-		colNames := columnNames(nonPKCols)
-		placeholders := make([]string, len(nonPKCols))
-		paramNames := make([]string, len(nonPKCols))
-		for i, col := range nonPKCols {
+	// Filter out auto-managed timestamp columns — they use DB defaults.
+	var insertCols []manifest.Column
+	for _, col := range nonPKCols {
+		if col.Name == "created_at" || col.Name == "updated_at" || col.Name == "deleted_at" {
+			continue
+		}
+		insertCols = append(insertCols, col)
+	}
+	if len(insertCols) > 0 {
+		colNames := columnNames(insertCols)
+		placeholders := make([]string, len(insertCols))
+		paramNames := make([]string, len(insertCols))
+		for i, col := range insertCols {
 			placeholders[i] = "?"
 			paramNames[i] = "data." + col.Name
 		}
@@ -159,14 +174,22 @@ func generateTableHelpers(schema manifest.Schema) string {
 
 	// updateXxx
 	nonPKUpdateCols := nonPrimaryColumns(schema)
-	if len(nonPKUpdateCols) > 0 {
-		setClauses := make([]string, len(nonPKUpdateCols))
-		paramNames := make([]string, len(nonPKUpdateCols)+1)
-		for i, col := range nonPKUpdateCols {
+	var updateCols []manifest.Column
+	for _, col := range nonPKUpdateCols {
+		if col.Name == "created_at" || col.Name == "updated_at" || col.Name == "deleted_at" {
+			continue
+		}
+		updateCols = append(updateCols, col)
+	}
+	if len(updateCols) > 0 {
+		setClauses := make([]string, len(updateCols))
+		paramNames := make([]string, len(updateCols)+1)
+		for i, col := range updateCols {
 			setClauses[i] = col.Name + " = ?"
 			paramNames[i] = "data." + col.Name
 		}
-		paramNames[len(nonPKUpdateCols)] = "id"
+		paramNames[len(updateCols)] = "id"
+		setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
 		b.WriteString(fmt.Sprintf("function update%s(id, data) {\n", structName))
 		b.WriteString("  const database = getDB();\n")
 		b.WriteString(fmt.Sprintf("  database.prepare('UPDATE %s SET %s WHERE %s = ?').run(%s);\n",
@@ -175,8 +198,8 @@ func generateTableHelpers(schema manifest.Schema) string {
 	} else {
 		b.WriteString(fmt.Sprintf("function update%s(id, data) {\n", structName))
 		b.WriteString("  const database = getDB();\n")
-		b.WriteString(fmt.Sprintf("  database.prepare('UPDATE %s SET %s = %s WHERE %s = ?').run(id);\n",
-			schema.Table, pkCol, pkCol, pkCol))
+		b.WriteString(fmt.Sprintf("  database.prepare('UPDATE %s SET updated_at = CURRENT_TIMESTAMP WHERE %s = ?').run(id);\n",
+			schema.Table, pkCol))
 		b.WriteString(fmt.Sprintf("  return get%s(id);\n", structName))
 	}
 	b.WriteString("}\n\n")
@@ -184,7 +207,7 @@ func generateTableHelpers(schema manifest.Schema) string {
 	// deleteXxx
 	b.WriteString(fmt.Sprintf("function delete%s(id) {\n", structName))
 	b.WriteString("  const database = getDB();\n")
-	b.WriteString(fmt.Sprintf("  database.prepare('DELETE FROM %s WHERE %s = ?').run(id);\n", schema.Table, pkCol))
+	b.WriteString(fmt.Sprintf("  database.prepare('UPDATE %s SET deleted_at = CURRENT_TIMESTAMP WHERE %s = ? AND deleted_at IS NULL').run(id);\n", schema.Table, pkCol))
 	b.WriteString("}\n")
 
 	return b.String()
