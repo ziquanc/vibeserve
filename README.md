@@ -17,9 +17,24 @@
 
 ---
 
-VibeServe is a single-binary CLI that turns natural language into a running API server. Describe what you want in plain English (or any language), and VibeServe creates the database schema, API routes, business logic, and seed data — all live, all instantly testable.
+VibeServe is an AI-powered CLI that turns natural language into a running API server. Describe what you want in plain English (or any language), and VibeServe uses an LLM to create the database schema, API routes, business logic, and seed data — all live, all instantly testable.
 
-No boilerplate. No scaffolding. No framework lock-in. When you're done prototyping, export to a standalone Go or Express.js server and ship it.
+**What used to take hours now takes seconds.** No boilerplate, no scaffolding, no framework lock-in.
+
+**How it speeds up your workflow:**
+
+| Traditional | With VibeServe |
+|-------------|----------------|
+| Design schema, write migrations, build routes, write handlers, add validation, create seed data | Type one sentence. Done. |
+| Switch between database tool, editor, and API tester | Everything in one terminal — schema, routes, and live API running together |
+| Prototype in one stack, rewrite for production | Prototype instantly, export to Go or Express.js when ready to ship |
+| Manually add each new endpoint | Proxy mode auto-generates endpoints from your HTTP requests |
+
+**Who is it for:**
+- **Frontend developers** who need a real API right now to build against — not a mock server, an actual working backend
+- **Indie hackers** prototyping a new product and need to ship an MVP fast
+- **Teams** spinning up internal tools, admin panels, or microservices without boilerplate
+- **Learners** exploring API design — see your ideas come to life in seconds
 
 > **New in v0.2** — Express.js export with full security stack (helmet, CORS, JWT, rate-limiting) and proxy/auto-evolve mode that builds your API from incoming HTTP requests.
 
@@ -243,9 +258,9 @@ The setup wizard runs on first launch and saves config to `.vibe/config.yaml`.
 ## How It Works
 
 ```
-You describe an API
+You describe an API in plain language
         |
-   LLM creates a plan
+   AI analyzes your request and creates a plan
         |
    Blueprint proposed -----> You review (approve/refine/cancel)
         |
@@ -256,6 +271,20 @@ You describe an API
    Routes registered ------> HTTP server serves your API
         |
    Test immediately -------> curl localhost:8080/your-routes
+```
+
+Or skip the conversation entirely with **proxy mode**:
+
+```
+You send an HTTP request to a route that doesn't exist
+        |
+   AI analyzes the request (method, path, body)
+        |
+   Auto-generates table + route + handler
+        |
+   Route registered permanently
+        |
+   Response returned to your original request
 ```
 
 VibeServe stores everything in a `.vibe/` directory:
