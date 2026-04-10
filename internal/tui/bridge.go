@@ -154,5 +154,17 @@ func NewBridge(program *tea.Program, bus *engine.Bus) *Bridge {
 		}
 	})
 
+	bus.Subscribe(engine.EventAutoFixStarted, func(e engine.Event) {
+		if info, ok := e.Data.(engine.AutoFixInfo); ok {
+			program.Send(AutoFixMsg{Info: info})
+		}
+	})
+
+	bus.Subscribe(engine.EventAutoFixCompleted, func(e engine.Event) {
+		if info, ok := e.Data.(engine.AutoFixInfo); ok {
+			program.Send(AutoFixMsg{Info: info})
+		}
+	})
+
 	return b
 }

@@ -171,16 +171,26 @@ func parseReference(ref string) (table, column string) {
 var stdlibNames = []string{"db", "request", "response", "date", "crypto", "log"}
 
 func validateCompilation(m *Manifest) error {
+	errs := ValidateCompilationErrors(m)
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// ValidateCompilationErrors compiles every script and returns a slice of
+// human-readable error strings (one per failing script). Returns nil if all
+// scripts compile cleanly.
+func ValidateCompilationErrors(m *Manifest) []string {
+	var errs []string
 	for _, s := range m.Scripts {
 		script := tengo.NewScript([]byte(s.Code))
 		for _, name := range stdlibNames {
-			// Add empty maps so compiler knows these variables exist.
 			_ = script.Add(name, map[string]interface{}{})
 		}
-		_, err := script.Compile()
-		if err != nil {
-			return fmt.Errorf("script %q: %w", s.Name, err)
+		if _, err := script.Compile(); err != nil {
+			errs = append(errs, fmt.Sprintf("script %q: %s", s.Name, err.Error()))
 		}
 	}
-	return nil
+	return errs
 }

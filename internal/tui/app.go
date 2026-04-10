@@ -316,6 +316,19 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Role:    RoleSystem,
 			Content: fmt.Sprintf("[%s] %s", msg.Level, msg.Message),
 		})
+	case AutoFixMsg:
+		info := msg.Info
+		if info.Fixed {
+			m.conversation.AddMessage(Message{
+				Role:    RoleSystem,
+				Content: fmt.Sprintf("Auto-fix: fixed %d script error(s) (attempt %d/%d)", len(info.Errors), info.Attempt, info.Max),
+			})
+		} else {
+			m.conversation.AddMessage(Message{
+				Role:    RoleSystem,
+				Content: fmt.Sprintf("Auto-fix: attempting to fix %d script error(s) (attempt %d/%d)...", len(info.Errors), info.Attempt, info.Max),
+			})
+		}
 	}
 
 	return m, tea.Batch(cmds...)

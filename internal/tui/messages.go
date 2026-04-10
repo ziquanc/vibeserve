@@ -130,6 +130,11 @@ type BlueprintRefineMsg struct {
 	Feedback string
 }
 
+// AutoFixMsg carries an auto-fix event from the engine.
+type AutoFixMsg struct {
+	Info engine.AutoFixInfo
+}
+
 // BlueprintCancelMsg is sent when the user cancels the pending blueprint.
 type BlueprintCancelMsg struct{}
 

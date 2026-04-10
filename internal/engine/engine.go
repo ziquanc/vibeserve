@@ -207,7 +207,33 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 	if err := manifest.Validate(newManifest); err != nil {
 		log.Printf("[engine] validation failed: %v", err)
 		e.bus.Publish(Event{Type: EventManifestValidationFailed, Data: err.Error()})
-		return nil, fmt.Errorf("manifest validation failed: %w", err)
+
+		// Auto-fix: if the error is from script compilation, try to fix via LLM
+		if isCompilationError(err) {
+			scriptErrors := manifest.ValidateCompilationErrors(newManifest)
+			if len(scriptErrors) > 0 && e.provider != nil {
+				log.Printf("[engine] attempting auto-fix for %d compilation error(s)", len(scriptErrors))
+				fixed := e.autoFixManifest(ctx, newManifest, scriptErrors, -1, "")
+				if fixed != nil {
+					// Re-validate the fixed manifest (structure + referential + compilation)
+					if fixErr := manifest.Validate(fixed); fixErr == nil {
+						log.Printf("[engine] auto-fix succeeded, proceeding with fixed manifest")
+						newManifest = fixed
+						repairManifest(newManifest, e.manifest)
+						// Fall through to diff + apply below
+					} else {
+						log.Printf("[engine] auto-fix produced invalid manifest: %v", fixErr)
+						return nil, fmt.Errorf("manifest validation failed (auto-fix attempted): %w", fixErr)
+					}
+				} else {
+					return nil, fmt.Errorf("manifest validation failed: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("manifest validation failed: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("manifest validation failed: %w", err)
+		}
 	}
 	log.Printf("[engine] manifest validated OK")
 

@@ -37,6 +37,10 @@ const (
 	EventBlueprintProposed EventType = "BLUEPRINT_PROPOSED"
 	EventBlueprintRefined  EventType = "BLUEPRINT_REFINED"
 	EventBlueprintApproved EventType = "BLUEPRINT_APPROVED"
+
+	// Auto-fix events
+	EventAutoFixStarted   EventType = "AUTO_FIX_STARTED"   // Data: AutoFixInfo
+	EventAutoFixCompleted EventType = "AUTO_FIX_COMPLETED" // Data: AutoFixInfo
 )
 
 // PlanInfo describes the execution plan.
@@ -56,4 +60,14 @@ type StepInfo struct {
 type Event struct {
 	Type EventType
 	Data any
+}
+
+// AutoFixInfo describes an auto-fix attempt.
+type AutoFixInfo struct {
+	Attempt   int      // which attempt (1-based)
+	Max       int      // max attempts
+	Errors    []string // compilation errors found
+	Fixed     bool     // whether the fix succeeded
+	StepIndex int      // -1 if not step-level (direct apply)
+	StepDesc  string   // step description (if step-level)
 }
