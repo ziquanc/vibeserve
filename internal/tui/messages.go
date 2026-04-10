@@ -31,6 +31,11 @@ type ApplyResultMsg struct {
 // UndoRequestMsg is sent when the user types /undo.
 type UndoRequestMsg struct{}
 
+// BrainstormMsg is sent when brainstorming phase completes with the design document.
+type BrainstormMsg struct {
+	DesignDoc string
+}
+
 // RoutesRequestMsg is sent when the user types /routes.
 type RoutesRequestMsg struct{}
 

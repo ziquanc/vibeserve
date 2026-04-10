@@ -38,6 +38,10 @@ const (
 	EventBlueprintRefined  EventType = "BLUEPRINT_REFINED"
 	EventBlueprintApproved EventType = "BLUEPRINT_APPROVED"
 
+	// Brainstorming events
+	EventBrainstormStarted  EventType = "BRAINSTORM_STARTED"  // Data: BrainstormInfo
+	EventBrainstormCompleted EventType = "BRAINSTORM_COMPLETED" // Data: BrainstormInfo
+
 	// Auto-fix events
 	EventAutoFixStarted   EventType = "AUTO_FIX_STARTED"   // Data: AutoFixInfo
 	EventAutoFixCompleted EventType = "AUTO_FIX_COMPLETED" // Data: AutoFixInfo
@@ -55,6 +59,11 @@ type StepInfo struct {
 	Total   int
 	Description string
 	Changes []string // summary of what changed in this step
+}
+
+// BrainstormInfo describes the brainstorming phase output.
+type BrainstormInfo struct {
+	DesignDoc string // domain design document (entities, relationships, business rules)
 }
 
 type Event struct {

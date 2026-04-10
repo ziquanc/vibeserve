@@ -166,5 +166,11 @@ func NewBridge(program *tea.Program, bus *engine.Bus) *Bridge {
 		}
 	})
 
+	bus.Subscribe(engine.EventBrainstormCompleted, func(e engine.Event) {
+		if info, ok := e.Data.(engine.BrainstormInfo); ok {
+			program.Send(BrainstormMsg{DesignDoc: info.DesignDoc})
+		}
+	})
+
 	return b
 }

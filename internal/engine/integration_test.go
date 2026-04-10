@@ -27,6 +27,10 @@ func (m *mockLLMProvider) Generate(_ context.Context, _ *manifest.Manifest, _ st
 	return m.result, nil
 }
 
+func (m *mockLLMProvider) Chat(ctx context.Context, systemPrompt string, prompt string) (string, error) {
+	return "", nil
+}
+
 // TestIntegration_EngineEvolvesManifest verifies the full Phase 2 pipeline:
 // load v1 → apply prompt (mock LLM returns v2) → diff/migrate → HTTP routes updated.
 func TestIntegration_EngineEvolvesManifest(t *testing.T) {

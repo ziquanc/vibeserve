@@ -20,6 +20,10 @@ type Provider interface {
 	// Generate sends the user prompt (with history and current manifest context)
 	// to the LLM and returns the generated manifest.
 	Generate(ctx context.Context, current *manifest.Manifest, prompt string, history []Message) (*manifest.Manifest, error)
+
+	// Chat sends a prompt and returns the raw text response (no JSON parsing).
+	// Used for brainstorming, planning, and other non-manifest interactions.
+	Chat(ctx context.Context, systemPrompt string, prompt string) (string, error)
 }
 
 // BuildSystemPrompt constructs the system prompt that instructs the LLM how to
@@ -260,7 +264,66 @@ if status == undefined {
 	return b.String()
 }
 
+// BrainstormSystemPrompt is the system prompt for the brainstorming phase.
+const BrainstormSystemPrompt = `You are an expert database architect and API designer. You think deeply about domain modeling before building anything. You design schemas that capture real-world relationships, lifecycle states, and business rules — not just flat CRUD tables.`
+
+// BuildBrainstormPrompt asks the LLM to think deeply about the domain before planning.
+// The output is a design document that gets fed into the plan step builder.
+func BuildBrainstormPrompt(userRequest string) string {
+	return fmt.Sprintf(`A user wants to build an API. Their request: "%s"
+
+Before we build anything, THINK about the domain design. Analyze the request and produce a concise design document covering:
+
+1. ENTITIES: What tables are needed? For each table, list the columns with types. Think about:
+   - Foreign keys and relationships (one-to-many, many-to-many via join tables)
+   - Status/state fields for entities with lifecycles (use TEXT with check constraints mentally)
+   - Timestamps: created_at, updated_at where appropriate
+   - Soft delete: deleted_at for entities that should be archivable
+
+2. RELATIONSHIPS: How do entities connect? Which are one-to-many vs many-to-many?
+   - For many-to-many, name the join table explicitly
+
+3. LIFECYCLE & BUSINESS RULES: Which entities have state machines or validation rules?
+   - Example: a booking goes pending → confirmed → completed/cancelled
+   - Example: a club membership requires approval
+   - What computed/aggregated endpoints would be useful? (counts, dashboards, reports)
+
+4. BEYOND-CRUD ENDPOINTS: What endpoints go beyond basic Create/Read/Update/Delete?
+   - Action endpoints (POST /resource/:id/action-name)
+   - Search/filter endpoints
+   - Analytics/aggregation endpoints
+
+Be specific. Use real column names and types. Keep it concise — this is a design doc, not an essay.`, userRequest)
+}
+
+// BuildEnrichedPlanPrompt creates a plan prompt that includes the brainstorm design.
+// This produces much better steps than the naive approach.
+func BuildEnrichedPlanPrompt(userRequest string, designDoc string) string {
+	return fmt.Sprintf(`The user wants: "%s"
+
+Here is the domain design for this API:
+
+%s
+
+---
+
+Based on this design, break the implementation into 3-7 small steps. Each step should be independently implementable.
+
+Output ONLY a JSON array of step descriptions. Each description should be SPECIFIC — name exact tables, columns, and routes.
+
+Guidelines:
+- First steps: create core tables with foreign keys
+- Middle steps: create routes (grouped by entity), include beyond-CRUD routes
+- Later steps: seed data, computed endpoints, validation logic
+- Each step should reference specific table names and key columns from the design
+- Order matters — create parent tables before child tables
+
+Example output format:
+["Create users table (id, email, name, role, created_at) and auth routes (POST /register, POST /login)", "Create cars table (id, owner_id FK→users, make, model, year, status, created_at) with CRUD routes", ...]`, userRequest, designDoc)
+}
+
 // BuildPlanPrompt creates a prompt that asks the LLM to break a request into steps.
+// This is the original simple prompt, kept for backward compatibility and fallback.
 func BuildPlanPrompt(userRequest string) string {
 	return fmt.Sprintf(`The user wants: "%s"
 
@@ -276,7 +339,7 @@ Rules:
 - Output ONLY the JSON array, no other text`, userRequest)
 }
 
-// ExtractPlan parses a JSON array of step descriptions from LLM output.
+// ExtractPlan extracts a JSON array of step descriptions from LLM output.
 func ExtractPlan(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 

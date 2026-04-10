@@ -27,6 +27,10 @@ func (m *mockProvider) Generate(ctx context.Context, current *manifest.Manifest,
 	return m.manifest, nil
 }
 
+func (m *mockProvider) Chat(ctx context.Context, systemPrompt string, prompt string) (string, error) {
+	return "", m.err
+}
+
 // mockTrie implements RouteTrie for tests without importing router (avoids import cycle).
 type mockTrie struct {
 	mu      sync.Mutex

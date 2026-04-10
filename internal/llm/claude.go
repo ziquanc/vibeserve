@@ -162,3 +162,67 @@ func (c *ClaudeProvider) Generate(ctx context.Context, current *manifest.Manifes
 
 	return ParseManifestResponse(text)
 }
+
+// Chat sends a prompt and returns the raw text response (no JSON parsing).
+func (c *ClaudeProvider) Chat(ctx context.Context, systemPrompt string, prompt string) (string, error) {
+	msgs := []claudeMsg{
+		{Role: "user", Content: prompt},
+	}
+
+	reqBody := claudeRequest{
+		Model:     c.model,
+		MaxTokens: c.maxTokens,
+		System:    systemPrompt,
+		Messages:  msgs,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("anthropic-version", claudeAPIVersion)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("claude API request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("claude API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var claudeResp claudeResponse
+	if err := json.Unmarshal(respBody, &claudeResp); err != nil {
+		return "", fmt.Errorf("parse claude response: %w", err)
+	}
+
+	if claudeResp.Error != nil {
+		return "", fmt.Errorf("claude error: %s: %s", claudeResp.Error.Type, claudeResp.Error.Message)
+	}
+
+	if len(claudeResp.Content) == 0 {
+		return "", fmt.Errorf("claude returned empty content")
+	}
+
+	for _, block := range claudeResp.Content {
+		if block.Type == "text" {
+			return block.Text, nil
+		}
+	}
+
+	return "", fmt.Errorf("claude returned no text content")
+}

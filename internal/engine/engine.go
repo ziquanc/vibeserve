@@ -113,10 +113,30 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 	// 1. Emit UserPromptReceived
 	e.bus.Publish(Event{Type: EventUserPromptReceived, Data: prompt})
 
-	// 2. Planning phase — ask LLM to break work into steps
+	// 2. Brainstorming phase — ask LLM to think about domain design (if provider supports Chat)
+	var designDoc string
+	if e.provider != nil {
+		e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Brainstorming domain design..."})
+		brainstormPrompt := llm.BuildBrainstormPrompt(prompt)
+		if doc, err := e.provider.Chat(ctx, llm.BrainstormSystemPrompt, brainstormPrompt); err == nil {
+			designDoc = doc
+			e.bus.Publish(Event{Type: EventLLMRequestCompleted, Data: designDoc})
+			e.bus.Publish(Event{Type: EventBrainstormCompleted, Data: BrainstormInfo{DesignDoc: designDoc}})
+		} else {
+			// Brainstorm failed, continue without it (log but don't fail)
+			log.Printf("[engine] brainstorming failed, continuing with standard planning: %v", err)
+		}
+	}
+
+	// 3. Planning phase — ask LLM to break work into steps
 	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Planning..."})
 
-	planPrompt := llm.BuildPlanPrompt(prompt)
+	var planPrompt string
+	if designDoc != "" {
+		planPrompt = llm.BuildEnrichedPlanPrompt(prompt, designDoc)
+	} else {
+		planPrompt = llm.BuildPlanPrompt(prompt)
+	}
 	planManifest, planErr := e.provider.Generate(ctx, e.manifest, planPrompt, nil)
 
 	var steps []string

@@ -160,6 +160,64 @@ func (o *OpenAIProvider) Generate(ctx context.Context, current *manifest.Manifes
 	return ParseManifestResponse(text)
 }
 
+// Chat sends a prompt and returns the raw text response (no JSON parsing).
+func (o *OpenAIProvider) Chat(ctx context.Context, systemPrompt string, prompt string) (string, error) {
+	msgs := []openaiMsg{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: prompt},
+	}
+
+	reqBody := openaiRequest{
+		Model:     o.model,
+		MaxTokens: o.maxTokens,
+		Messages:  msgs,
+		Stream:    false, // no streaming for chat
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+o.apiKey)
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("openai API request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("openai API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("no response from LLM")
+	}
+	return result.Choices[0].Message.Content, nil
+}
+
 // readStream reads the response body line-by-line for real-time progress.
 // Handles both SSE format (data: {...}) and plain JSON fallback.
 func (o *OpenAIProvider) readStream(body io.Reader) (string, error) {

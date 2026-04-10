@@ -333,6 +333,13 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Content: fmt.Sprintf("Auto-fix: attempting to fix %d script error(s) (attempt %d/%d)...", len(info.Errors), info.Attempt, info.Max),
 			})
 		}
+	case BrainstormMsg:
+		// Display the brainstorm design document as a system message
+		// This shows the user the domain design that informed the planning
+		m.conversation.AddMessage(Message{
+			Role:    RoleSystem,
+			Content: fmt.Sprintf("Domain Design:\n%s", msg.DesignDoc),
+		})
 	}
 
 	return m, tea.Batch(cmds...)

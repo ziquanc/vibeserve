@@ -91,6 +91,10 @@ response.json(row, 201)`,
 	return m, nil
 }
 
+func (p *proxyMockProvider) Chat(ctx context.Context, systemPrompt string, prompt string) (string, error) {
+	return "", nil
+}
+
 func TestProxyEngine_AutoGenerateEndpoint(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()

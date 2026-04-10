@@ -127,3 +127,60 @@ func (o *OllamaProvider) Generate(ctx context.Context, current *manifest.Manifes
 
 	return ParseManifestResponse(text)
 }
+
+// Chat sends a prompt and returns the raw text response (no JSON parsing).
+func (o *OllamaProvider) Chat(ctx context.Context, systemPrompt string, prompt string) (string, error) {
+	msgs := []ollamaMsg{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: prompt},
+	}
+
+	reqBody := ollamaRequest{
+		Model:    o.model,
+		Messages: msgs,
+		Stream:   false,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := o.host + ollamaDefaultPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ollama API request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("ollama API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var ollamaResp ollamaResponse
+	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
+		return "", fmt.Errorf("parse ollama response: %w", err)
+	}
+
+	if ollamaResp.Error != "" {
+		return "", fmt.Errorf("ollama error: %s", ollamaResp.Error)
+	}
+
+	text := ollamaResp.Message.Content
+	if text == "" {
+		return "", fmt.Errorf("ollama returned empty content")
+	}
+
+	return text, nil
+}

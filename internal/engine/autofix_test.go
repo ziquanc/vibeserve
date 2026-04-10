@@ -31,6 +31,10 @@ func (p *autoFixMockProvider) Generate(_ context.Context, _ *manifest.Manifest, 
 	return p.broken, nil
 }
 
+func (p *autoFixMockProvider) Chat(ctx context.Context, systemPrompt string, prompt string) (string, error) {
+	return "", nil
+}
+
 // TestAutoFix_CompilationErrors verifies that when the LLM generates scripts
 // with Tengo compilation errors, the engine auto-fixes them by sending the
 // errors back to the LLM and retrying.
