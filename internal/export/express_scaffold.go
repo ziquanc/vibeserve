@@ -180,7 +180,11 @@ async function start() {
     // Graceful shutdown
     const shutdown = (signal) => {
       console.log(` + "`" + `\n${signal} received, shutting down gracefully...` + "`" + `);
-      server.close(() => {
+      server.close(async () => {
+        try {
+          const { closeDB } = require('./src/models/database');
+          if (closeDB) await closeDB();
+        } catch {}
         console.log('Server closed');
         process.exit(0);
       });
