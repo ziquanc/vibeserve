@@ -204,8 +204,6 @@ func generateResourceRoutes(schemas []manifest.Schema, resource string, routes [
 	// Determine which imports we need
 	needsDB := false
 	needsValidator := false
-	needsAuth := false
-
 	for _, route := range routes {
 		script, ok := scriptMap[route.Script]
 		if ok {
@@ -219,10 +217,6 @@ func generateResourceRoutes(schemas []manifest.Schema, resource string, routes [
 		}
 		if len(route.RequestBody) > 0 {
 			needsValidator = true
-		}
-		// Check for auth-related routes
-		if strings.Contains(route.Path, "protected") || strings.Contains(route.Path, "me") {
-			needsAuth = true
 		}
 	}
 
@@ -252,10 +246,6 @@ func generateResourceRoutes(schemas []manifest.Schema, resource string, routes [
 		b.WriteString("const { validate, body, param, query: queryValidator } = require('../middleware/validate');\n")
 	}
 
-	if needsAuth {
-		b.WriteString("const { authenticate } = require('../middleware/auth');\n")
-	}
-
 	b.WriteString("\n")
 
 	// Generate each route handler
@@ -279,7 +269,13 @@ func generateResourceRoutes(schemas []manifest.Schema, resource string, routes [
 		// Path parameter validation for routes with :id etc.
 		pathParams := extractPathParams(route.Path)
 		for _, p := range pathParams {
-			middleware = append(middleware, fmt.Sprintf("param('%s').isInt().withMessage('%s must be an integer')", p, p))
+			colType := findColumnType(schemas, p)
+			switch colType {
+			case "INTEGER":
+				middleware = append(middleware, fmt.Sprintf("param('%s').isInt().withMessage('%s must be an integer')", p, p))
+			default:
+				middleware = append(middleware, fmt.Sprintf("param('%s').notEmpty().withMessage('%s is required')", p, p))
+			}
 		}
 
 		middlewareStr := ""
@@ -288,6 +284,7 @@ func generateResourceRoutes(schemas []manifest.Schema, resource string, routes [
 		}
 
 		b.WriteString(fmt.Sprintf("router.%s('%s'%s, (req, res, next) => {\n", method, expressPathStr, middlewareStr))
+		b.WriteString("  try {\n")
 
 		// Generate handler body
 		script, hasScript := scriptMap[route.Script]
@@ -295,15 +292,24 @@ func generateResourceRoutes(schemas []manifest.Schema, resource string, routes [
 			jsBody := translateTengoToJS(script.Code, route, schemas)
 			if jsBody == "" {
 				// Fallback stub
-				b.WriteString(fmt.Sprintf("  // TODO: Implement %s\n", route.Script))
-				b.WriteString("  res.status(501).json({ error: 'Not implemented' });\n")
+				b.WriteString(fmt.Sprintf("    // TODO: Implement %s\n", route.Script))
+				b.WriteString("    res.status(501).json({ error: 'Not implemented' });\n")
 			} else {
-				b.WriteString(jsBody)
+				for _, line := range strings.Split(jsBody, "\n") {
+					if strings.TrimSpace(line) == "" {
+						b.WriteString("\n")
+					} else {
+						b.WriteString("  " + line + "\n")
+					}
+				}
 			}
 		} else {
-			b.WriteString("  res.status(501).json({ error: 'No script defined' });\n")
+			b.WriteString("    res.status(501).json({ error: 'No script defined' });\n")
 		}
 
+		b.WriteString("  } catch (err) {\n")
+		b.WriteString("    next(err);\n")
+		b.WriteString("  }\n")
 		b.WriteString("});\n\n")
 	}
 
@@ -591,6 +597,18 @@ func inferExpressResource(path string) string {
 		return seg
 	}
 	return "api"
+}
+
+// findColumnType looks up the column type for a given parameter name across all schemas.
+func findColumnType(schemas []manifest.Schema, paramName string) string {
+	for _, s := range schemas {
+		for _, c := range s.Columns {
+			if c.Name == paramName {
+				return c.Type
+			}
+		}
+	}
+	return ""
 }
 
 // leadingWhitespace returns the leading whitespace of a line.
