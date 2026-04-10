@@ -99,7 +99,7 @@ func generateCreateTable(schema manifest.Schema) string {
 		if col.Default != nil {
 			switch v := col.Default.(type) {
 			case string:
-				def += fmt.Sprintf(" DEFAULT '%s'", v)
+				def += fmt.Sprintf(" DEFAULT '%s'", strings.ReplaceAll(v, "'", "''"))
 			default:
 				def += fmt.Sprintf(" DEFAULT %v", v)
 			}
@@ -122,9 +122,9 @@ func generateTableHelpers(schema manifest.Schema) string {
 	pkCol := findPKColumn(schema)
 
 	// listXxx
-	b.WriteString(fmt.Sprintf("function list%s() {\n", pluralName))
+	b.WriteString(fmt.Sprintf("function list%s(limit = 50, offset = 0) {\n", pluralName))
 	b.WriteString("  const database = getDB();\n")
-	b.WriteString(fmt.Sprintf("  return database.prepare('SELECT * FROM %s').all();\n", schema.Table))
+	b.WriteString(fmt.Sprintf("  return database.prepare('SELECT * FROM %s LIMIT ? OFFSET ?').all(limit, offset);\n", schema.Table))
 	b.WriteString("}\n\n")
 
 	// getXxx
@@ -148,12 +148,12 @@ func generateTableHelpers(schema manifest.Schema) string {
 		b.WriteString(fmt.Sprintf("  const stmt = database.prepare('INSERT INTO %s (%s) VALUES (%s)');\n",
 			schema.Table, colNames, strings.Join(placeholders, ", ")))
 		b.WriteString(fmt.Sprintf("  const result = stmt.run(%s);\n", strings.Join(paramNames, ", ")))
-		b.WriteString("  return { id: result.lastInsertRowid, ...data };\n")
+		b.WriteString(fmt.Sprintf("  return { %s: result.lastInsertRowid, ...data };\n", pkCol))
 	} else {
 		b.WriteString(fmt.Sprintf("function create%s(data) {\n", structName))
 		b.WriteString("  const database = getDB();\n")
 		b.WriteString(fmt.Sprintf("  const result = database.prepare('INSERT INTO %s DEFAULT VALUES').run();\n", schema.Table))
-		b.WriteString("  return { id: result.lastInsertRowid, ...data };\n")
+		b.WriteString(fmt.Sprintf("  return { %s: result.lastInsertRowid, ...data };\n", pkCol))
 	}
 	b.WriteString("}\n\n")
 
