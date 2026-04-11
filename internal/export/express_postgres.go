@@ -292,9 +292,67 @@ func generatePostgresTableHelpers(schema manifest.Schema) string {
 	singular := TableToStructName(table)
 	pkCol := findPKColumn(schema)
 
-	// listXxx(limit = 50, offset = 0)
-	b.WriteString(fmt.Sprintf("async function list%ss(limit = 50, offset = 0) {\n", singular))
-	b.WriteString(fmt.Sprintf("  const { rows } = await pool.query('SELECT * FROM %s WHERE deleted_at IS NULL LIMIT $1 OFFSET $2', [limit, offset]);\n", table))
+	// listXxx — supports sort, order, search (TEXT columns), and field filters
+	var allColNames []string
+	var textColNames []string
+	for _, col := range schema.Columns {
+		if col.Name == "created_at" || col.Name == "updated_at" || col.Name == "deleted_at" {
+			continue
+		}
+		allColNames = append(allColNames, col.Name)
+		if col.Type == "TEXT" {
+			textColNames = append(textColNames, col.Name)
+		}
+	}
+	allColNames = append(allColNames, "created_at", "updated_at")
+
+	quotedAllCols := make([]string, len(allColNames))
+	for i, n := range allColNames {
+		quotedAllCols[i] = fmt.Sprintf("'%s'", n)
+	}
+
+	b.WriteString(fmt.Sprintf("async function list%ss(options = {}) {\n", singular))
+	b.WriteString("  const { limit = 50, offset = 0, sort = 'id', order = 'asc', search, ...filters } = options;\n\n")
+	b.WriteString(fmt.Sprintf("  const validColumns = new Set([%s]);\n", strings.Join(quotedAllCols, ", ")))
+	b.WriteString("  const sortCol = validColumns.has(sort) ? sort : 'id';\n")
+	b.WriteString("  const sortDir = order === 'desc' ? 'DESC' : 'ASC';\n\n")
+	b.WriteString("  let conditions = ['deleted_at IS NULL'];\n")
+	b.WriteString("  let params = [];\n")
+	b.WriteString("  let n = 0;\n\n")
+
+	// Search across TEXT columns using ILIKE (PostgreSQL case-insensitive)
+	if len(textColNames) > 0 {
+		b.WriteString("  if (search) {\n")
+		b.WriteString("    n++;\n")
+		// Build ILIKE conditions all reusing the same $n param
+		ilikeJS := make([]string, len(textColNames))
+		for i, tc := range textColNames {
+			ilikeJS[i] = tc + " ILIKE $' + n + '"
+		}
+		b.WriteString(fmt.Sprintf("    conditions.push('(%s)');\n",
+			strings.Join(ilikeJS, " OR ")))
+		b.WriteString("    params.push('%' + search + '%');\n")
+		b.WriteString("  }\n\n")
+	}
+
+	// Field filters
+	b.WriteString("  for (const [key, value] of Object.entries(filters)) {\n")
+	b.WriteString("    if (validColumns.has(key)) {\n")
+	b.WriteString("      n++;\n")
+	b.WriteString("      conditions.push(key + ' = $' + n);\n")
+	b.WriteString("      params.push(value);\n")
+	b.WriteString("    }\n")
+	b.WriteString("  }\n\n")
+
+	b.WriteString("  n++;\n")
+	b.WriteString("  const limitParam = n;\n")
+	b.WriteString("  n++;\n")
+	b.WriteString("  const offsetParam = n;\n")
+	b.WriteString("  params.push(limit, offset);\n\n")
+	b.WriteString(fmt.Sprintf("  const { rows } = await pool.query(\n"))
+	b.WriteString(fmt.Sprintf("    'SELECT * FROM %s WHERE ' + conditions.join(' AND ') + ' ORDER BY ' + sortCol + ' ' + sortDir + ' LIMIT $' + limitParam + ' OFFSET $' + offsetParam,\n", table))
+	b.WriteString("    params\n")
+	b.WriteString("  );\n")
 	b.WriteString("  return rows;\n")
 	b.WriteString("}\n\n")
 

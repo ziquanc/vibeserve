@@ -265,6 +265,65 @@ func TestGeneratePostgresSeed_ExcludesTimestampColumns(t *testing.T) {
 	}
 }
 
+func TestGeneratePostgresDatabaseJS_ListFiltering(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT", Required: true},
+			{Name: "email", Type: "TEXT", Required: true},
+			{Name: "age", Type: "INTEGER"},
+		},
+	}}
+	result := GeneratePostgresDatabaseJS(schemas)
+
+	// Should accept options object
+	if !strings.Contains(result, "async function listUsers(options = {})") {
+		t.Error("list function should accept options object parameter")
+	}
+
+	// Should support sort parameter
+	if !strings.Contains(result, "sort = 'id'") {
+		t.Error("list function should support sort parameter with 'id' default")
+	}
+
+	// Should support order parameter
+	if !strings.Contains(result, "order = 'asc'") {
+		t.Error("list function should support order parameter with 'asc' default")
+	}
+
+	// Should use ILIKE for PostgreSQL case-insensitive search
+	if !strings.Contains(result, "ILIKE") {
+		t.Error("PostgreSQL search should use ILIKE for case-insensitive matching")
+	}
+
+	// Should only search TEXT columns (name, email) not INTEGER columns (age)
+	if !strings.Contains(result, "name ILIKE") {
+		t.Error("search should include TEXT column 'name'")
+	}
+	if !strings.Contains(result, "email ILIKE") {
+		t.Error("search should include TEXT column 'email'")
+	}
+	if strings.Contains(result, "age ILIKE") {
+		t.Error("search should NOT include INTEGER column 'age'")
+	}
+
+	// Should validate column names
+	if !strings.Contains(result, "validColumns") {
+		t.Error("should validate column names for sort/filter")
+	}
+
+	// Should support field filters
+	if !strings.Contains(result, "Object.entries(filters)") {
+		t.Error("should support field-specific filters via Object.entries")
+	}
+
+	// Should use numbered $N params
+	if !strings.Contains(result, "$") {
+		t.Error("should use $N numbered params for PostgreSQL")
+	}
+}
+
 func TestFormatPostgresValue(t *testing.T) {
 	tests := []struct {
 		input    any

@@ -121,6 +121,81 @@ func TestGenerateDatabaseJS_TimestampColumns(t *testing.T) {
 	}
 }
 
+func TestGenerateDatabaseJS_ListFiltering(t *testing.T) {
+	schemas := []manifest.Schema{{
+		Table: "users",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+			{Name: "email", Type: "TEXT"},
+			{Name: "age", Type: "INTEGER"},
+		},
+	}}
+	result := GenerateDatabaseJS(schemas)
+
+	// Should accept options object
+	if !strings.Contains(result, "function listUsers(options = {})") {
+		t.Error("list function should accept options object parameter")
+	}
+
+	// Should support sort parameter
+	if !strings.Contains(result, "sort = 'id'") {
+		t.Error("list function should support sort parameter with 'id' default")
+	}
+
+	// Should support order parameter
+	if !strings.Contains(result, "order = 'asc'") {
+		t.Error("list function should support order parameter with 'asc' default")
+	}
+
+	// Should support search parameter
+	if !strings.Contains(result, "search") {
+		t.Error("list function should support search parameter")
+	}
+
+	// Should use LIKE for text column search
+	if !strings.Contains(result, "LIKE") {
+		t.Error("search should use LIKE for text columns")
+	}
+
+	// Should only search TEXT columns (name, email) not INTEGER columns (age)
+	if !strings.Contains(result, "name LIKE") {
+		t.Error("search should include TEXT column 'name'")
+	}
+	if !strings.Contains(result, "email LIKE") {
+		t.Error("search should include TEXT column 'email'")
+	}
+	if strings.Contains(result, "age LIKE") {
+		t.Error("search should NOT include INTEGER column 'age'")
+	}
+
+	// Should validate column names for sort/filter
+	if !strings.Contains(result, "validColumns") {
+		t.Error("should validate column names for sort/filter")
+	}
+
+	// Should include all non-timestamp columns in validColumns
+	if !strings.Contains(result, "'id'") {
+		t.Error("validColumns should include 'id'")
+	}
+	if !strings.Contains(result, "'name'") {
+		t.Error("validColumns should include 'name'")
+	}
+	if !strings.Contains(result, "'age'") {
+		t.Error("validColumns should include 'age'")
+	}
+
+	// Should support ORDER BY with validated column
+	if !strings.Contains(result, "ORDER BY") {
+		t.Error("should include ORDER BY clause")
+	}
+
+	// Should support field filters
+	if !strings.Contains(result, "Object.entries(filters)") {
+		t.Error("should support field-specific filters via Object.entries")
+	}
+}
+
 func TestGenerateDatabaseJS_CreateExcludesTimestamps(t *testing.T) {
 	schemas := []manifest.Schema{{
 		Table: "users",

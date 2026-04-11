@@ -128,10 +128,62 @@ func generateTableHelpers(schema manifest.Schema) string {
 	pluralName := structName + "s"
 	pkCol := findPKColumn(schema)
 
-	// listXxx
-	b.WriteString(fmt.Sprintf("function list%s(limit = 50, offset = 0) {\n", pluralName))
+	// listXxx — supports sort, order, search (TEXT columns), and field filters
+	// Collect valid columns and text-only columns for search.
+	var allColNames []string
+	var textColNames []string
+	for _, col := range schema.Columns {
+		if col.Name == "created_at" || col.Name == "updated_at" || col.Name == "deleted_at" {
+			continue
+		}
+		allColNames = append(allColNames, col.Name)
+		if col.Type == "TEXT" {
+			textColNames = append(textColNames, col.Name)
+		}
+	}
+	// Also allow sorting/filtering by timestamp columns.
+	allColNames = append(allColNames, "created_at", "updated_at")
+
+	quotedAllCols := make([]string, len(allColNames))
+	for i, n := range allColNames {
+		quotedAllCols[i] = fmt.Sprintf("'%s'", n)
+	}
+
+	b.WriteString(fmt.Sprintf("function list%s(options = {}) {\n", pluralName))
 	b.WriteString("  const database = getDB();\n")
-	b.WriteString(fmt.Sprintf("  return database.prepare('SELECT * FROM %s WHERE deleted_at IS NULL LIMIT ? OFFSET ?').all(limit, offset);\n", schema.Table))
+	b.WriteString("  const { limit = 50, offset = 0, sort = 'id', order = 'asc', search, ...filters } = options;\n\n")
+	b.WriteString(fmt.Sprintf("  const validColumns = new Set([%s]);\n", strings.Join(quotedAllCols, ", ")))
+	b.WriteString("  const sortCol = validColumns.has(sort) ? sort : 'id';\n")
+	b.WriteString("  const sortDir = order === 'desc' ? 'DESC' : 'ASC';\n\n")
+	b.WriteString("  const conditions = ['deleted_at IS NULL'];\n")
+	b.WriteString("  const params = [];\n\n")
+
+	// Search across TEXT columns
+	if len(textColNames) > 0 {
+		likeParts := make([]string, len(textColNames))
+		for i, tc := range textColNames {
+			likeParts[i] = tc + " LIKE ?"
+		}
+		b.WriteString("  if (search) {\n")
+		b.WriteString(fmt.Sprintf("    conditions.push('(%s)');\n", strings.Join(likeParts, " OR ")))
+		pushArgs := make([]string, len(textColNames))
+		for i := range textColNames {
+			pushArgs[i] = "'%' + search + '%'"
+		}
+		b.WriteString(fmt.Sprintf("    params.push(%s);\n", strings.Join(pushArgs, ", ")))
+		b.WriteString("  }\n\n")
+	}
+
+	// Field filters
+	b.WriteString("  for (const [key, value] of Object.entries(filters)) {\n")
+	b.WriteString("    if (validColumns.has(key)) {\n")
+	b.WriteString("      conditions.push(key + ' = ?');\n")
+	b.WriteString("      params.push(value);\n")
+	b.WriteString("    }\n")
+	b.WriteString("  }\n\n")
+
+	b.WriteString("  params.push(limit, offset);\n")
+	b.WriteString(fmt.Sprintf("  return database.prepare(`SELECT * FROM %s WHERE ${conditions.join(' AND ')} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...params);\n", schema.Table))
 	b.WriteString("}\n\n")
 
 	// getXxx
