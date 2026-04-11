@@ -141,10 +141,35 @@ func (pe *ProxyEngine) handleCreateTable(ctx context.Context, method, path strin
 	newManifest.Scripts = append(newManifest.Scripts, scripts...)
 
 	// Also add the custom route that triggered this (if different from CRUD)
-	customRoute, customScript := generateCustomRoute(method, path, tableName, body)
-	if !routeExists(newManifest.Routes, method, path) {
-		newManifest.Routes = append(newManifest.Routes, customRoute)
-		newManifest.Scripts = append(newManifest.Scripts, customScript)
+	if intent.ParentTable != "" {
+		// Relationship path — generate a filtered query route
+		fkCol := singularize(intent.ParentTable) + "_id"
+		scriptName := fmt.Sprintf("%s_by_%s", intent.TableName, singularize(intent.ParentTable))
+		scriptCode := fmt.Sprintf("parent_id := request.param(\"id\")\nresults := db.query(\"SELECT * FROM %s WHERE %s = ? AND deleted_at IS NULL\", [parent_id])\nresponse.json(results)", intent.TableName, fkCol)
+
+		customRoute := manifest.Route{
+			Path:         path,
+			Method:       method,
+			Description:  fmt.Sprintf("Get %s for a specific %s", intent.TableName, singularize(intent.ParentTable)),
+			Script:       scriptName,
+			ResponseType: "array",
+		}
+		customScript := manifest.Script{
+			Name: scriptName,
+			Code: scriptCode,
+		}
+
+		if !routeExists(newManifest.Routes, method, path) {
+			newManifest.Routes = append(newManifest.Routes, customRoute)
+			newManifest.Scripts = append(newManifest.Scripts, customScript)
+		}
+	} else {
+		// Regular custom route
+		customRoute, customScript := generateCustomRoute(method, path, tableName, body)
+		if !routeExists(newManifest.Routes, method, path) {
+			newManifest.Routes = append(newManifest.Routes, customRoute)
+			newManifest.Scripts = append(newManifest.Scripts, customScript)
+		}
 	}
 
 	// Apply

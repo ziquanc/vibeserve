@@ -105,9 +105,47 @@ func (ia *IntentAnalyzer) Analyze(method, path string, body map[string]any, quer
 	if parent, _, child, ok := ia.graph.IsRelationshipRoute(path); ok {
 		childInfo := ia.graph.FindTableByResource(child)
 		if childInfo != nil {
+			// Both tables exist — just add a route
 			intent.Type = IntentAddRelationshipRoute
 			intent.ParentTable = parent
 			intent.ChildTable = childInfo.Name
+			return intent
+		}
+
+		// Parent exists but child doesn't — create child table with FK
+		parentInfo := ia.graph.FindTableByResource(parent)
+		if parentInfo != nil {
+			childTableName := ia.guessTableName(child)
+			parentTableName := parentInfo.Name
+			fkCol := singularize(parentTableName) + "_id"
+
+			columns := []manifest.Column{
+				{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+				{Name: fkCol, Type: "INTEGER", Required: true, References: fmt.Sprintf("%s.id", parentTableName)},
+			}
+
+			// Add columns from body (if any)
+			for k, v := range body {
+				if validColumnName.MatchString(k) && k != "id" && k != fkCol {
+					columns = append(columns, manifest.Column{
+						Name: k,
+						Type: guessType(v),
+					})
+				}
+			}
+
+			// Add created_at
+			columns = append(columns, manifest.Column{
+				Name:    "created_at",
+				Type:    "DATETIME",
+				Default: "NOW",
+			})
+
+			intent.Type = IntentCreateTable
+			intent.TableName = childTableName
+			intent.Columns = columns
+			intent.ParentTable = parentTableName
+			intent.Resource = child
 			return intent
 		}
 	}

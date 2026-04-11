@@ -161,8 +161,8 @@ func (sg *SchemaGraph) GetMissingColumns(tableName string, body map[string]any) 
 // the parent table, parent ID placeholder, child resource, and ok=true.
 func (sg *SchemaGraph) IsRelationshipRoute(path string) (parent, parentID, child string, ok bool) {
 	segments := splitPath(path)
-	// Need at least 4 segments: /resource/:id/sub-resource
-	if len(segments) < 4 {
+	// Need at least 3 segments: resource/:id/sub-resource
+	if len(segments) < 3 {
 		return "", "", "", false
 	}
 

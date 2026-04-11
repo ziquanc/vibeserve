@@ -318,6 +318,91 @@ func TestIntentAnalyzer_RejectsInvalidColumnNames(t *testing.T) {
 	}
 }
 
+func TestIntentAnalyzer_RelationshipCreateChild(t *testing.T) {
+	m := &manifest.Manifest{
+		Version: "1.0",
+		Schemas: []manifest.Schema{{
+			Table: "pets",
+			Columns: []manifest.Column{
+				{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+				{Name: "name", Type: "TEXT"},
+			},
+		}},
+		Routes:  []manifest.Route{},
+		Scripts: []manifest.Script{},
+	}
+
+	analyzer := engine.NewIntentAnalyzer(m)
+	intent := analyzer.Analyze("GET", "/pets/:id/history", nil, nil)
+
+	if intent.Type.String() != "CreateTable" {
+		t.Errorf("expected CreateTable, got %s", intent.Type)
+	}
+	if intent.TableName != "histories" {
+		t.Errorf("expected table name 'histories', got %q", intent.TableName)
+	}
+
+	// Should have FK column
+	hasPetFK := false
+	for _, col := range intent.Columns {
+		if col.Name == "pet_id" && col.References == "pets.id" {
+			hasPetFK = true
+		}
+	}
+	if !hasPetFK {
+		t.Error("child table should have pet_id FK column referencing pets.id")
+	}
+
+	// ParentTable should be set
+	if intent.ParentTable != "pets" {
+		t.Errorf("expected ParentTable 'pets', got %q", intent.ParentTable)
+	}
+}
+
+func TestIntentAnalyzer_RelationshipCreateChildWithBody(t *testing.T) {
+	m := &manifest.Manifest{
+		Version: "1.0",
+		Schemas: []manifest.Schema{{
+			Table: "pets",
+			Columns: []manifest.Column{
+				{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+				{Name: "name", Type: "TEXT"},
+			},
+		}},
+		Routes:  []manifest.Route{},
+		Scripts: []manifest.Script{},
+	}
+
+	analyzer := engine.NewIntentAnalyzer(m)
+	body := map[string]any{
+		"event":       "vaccination",
+		"description": "Annual checkup",
+	}
+	intent := analyzer.Analyze("POST", "/pets/:id/history", body, nil)
+
+	if intent.Type.String() != "CreateTable" {
+		t.Errorf("expected CreateTable, got %s", intent.Type)
+	}
+
+	// Should have body columns
+	colNames := map[string]bool{}
+	for _, col := range intent.Columns {
+		colNames[col.Name] = true
+	}
+	if !colNames["event"] {
+		t.Error("should have 'event' column from body")
+	}
+	if !colNames["description"] {
+		t.Error("should have 'description' column from body")
+	}
+	if !colNames["pet_id"] {
+		t.Error("should have 'pet_id' FK column")
+	}
+	if !colNames["created_at"] {
+		t.Error("should have 'created_at' column")
+	}
+}
+
 func TestIntentAnalyzer_RejectsInvalidColumnNamesInAddColumn(t *testing.T) {
 	// When a table exists but body has new fields, invalid new column names
 	// must be filtered out of ColumnsToAdd.
