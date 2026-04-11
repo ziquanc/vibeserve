@@ -7,8 +7,14 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vibeserve/vibeserve/internal/manifest"
+)
+
+const (
+	proxyRateLimit  = 30          // max generations per window
+	proxyRateWindow = time.Minute // window duration
 )
 
 // ProxyEngine intercepts unmatched HTTP requests and intelligently generates
@@ -27,6 +33,11 @@ type ProxyEngine struct {
 	// mu protects pending to prevent duplicate route generation for concurrent requests.
 	mu      sync.Mutex
 	pending map[string]chan proxyResult // key: "METHOD /path"
+
+	// Rate limiting for route generation.
+	rateMu      sync.Mutex
+	genCount    int       // generations in current window
+	windowStart time.Time // start of current rate limit window
 }
 
 // proxyResult carries the outcome of a proxy generation attempt.
@@ -40,8 +51,9 @@ type proxyResult struct {
 // NewProxyEngine creates a new ProxyEngine backed by the given Engine.
 func NewProxyEngine(eng *Engine) *ProxyEngine {
 	return &ProxyEngine{
-		engine:  eng,
-		pending: make(map[string]chan proxyResult),
+		engine:      eng,
+		pending:     make(map[string]chan proxyResult),
+		windowStart: time.Now(),
 	}
 }
 
@@ -82,10 +94,34 @@ func (pe *ProxyEngine) HandleUnknownRequest(ctx context.Context, method, path st
 	return status, respBody, respHeaders, err
 }
 
+// checkRateLimit returns an error if the generation rate limit has been exceeded.
+func (pe *ProxyEngine) checkRateLimit() error {
+	pe.rateMu.Lock()
+	defer pe.rateMu.Unlock()
+
+	now := time.Now()
+	if now.Sub(pe.windowStart) > proxyRateWindow {
+		// Reset window.
+		pe.windowStart = now
+		pe.genCount = 0
+	}
+
+	if pe.genCount >= proxyRateLimit {
+		return fmt.Errorf("rate limit exceeded: max %d route generations per minute", proxyRateLimit)
+	}
+
+	pe.genCount++
+	return nil
+}
+
 // smartGenerate is the core of the intent-aware proxy.
 // Phase 1: Analyze intent (deterministic, instant)
 // Phase 2: Execute based on intent type
 func (pe *ProxyEngine) smartGenerate(ctx context.Context, method, path string, body map[string]any, queryParams map[string]string) (int, map[string]any, map[string]string, error) {
+	if err := pe.checkRateLimit(); err != nil {
+		return 429, map[string]any{"error": err.Error()}, nil, nil
+	}
+
 	currentManifest := pe.engine.Manifest()
 
 	// Phase 1: Analyze intent
