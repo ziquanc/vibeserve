@@ -3,16 +3,23 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
+	"github.com/vibeserve/vibeserve/internal/llm"
 	"github.com/vibeserve/vibeserve/internal/manifest"
 	"github.com/vibeserve/vibeserve/internal/router"
 	"github.com/vibeserve/vibeserve/internal/store"
 )
+
+func setArgs(req *mcplib.CallToolRequest, args map[string]any) {
+	data, _ := json.Marshal(args)
+	json.Unmarshal(data, &req.Params.Arguments)
+}
 
 func setupTestServer(t *testing.T) *Server {
 	t.Helper()
@@ -190,4 +197,125 @@ func TestGetAPIStatus(t *testing.T) {
 	if status["routes"].(float64) != 3 {
 		t.Error("should have 3 routes")
 	}
+}
+
+func TestCreateAPI_NoProvider(t *testing.T) {
+	srv := setupTestServer(t)
+	// setupTestServer creates srv with provider = nil
+
+	req := mcplib.CallToolRequest{}
+	setArgs(&req, map[string]any{
+		"description": "Create a pet API",
+	})
+
+	result, err := srv.handleCreateAPI(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.IsError != true {
+		t.Error("should return error when no LLM provider configured")
+	}
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, "LLM provider") {
+		t.Error("error should mention LLM provider")
+	}
+}
+
+func TestCreateAPI_NoDescription(t *testing.T) {
+	srv := setupTestServer(t)
+	srv.provider = &fakeProvider{}
+
+	req := mcplib.CallToolRequest{}
+	setArgs(&req, map[string]any{})
+
+	result, err := srv.handleCreateAPI(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.IsError != true {
+		t.Error("should return error when description is missing")
+	}
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, "description") {
+		t.Error("error should mention description parameter")
+	}
+}
+
+func TestAddFeature_NoProvider(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req := mcplib.CallToolRequest{}
+	setArgs(&req, map[string]any{
+		"description": "Add comments",
+	})
+
+	result, err := srv.handleAddFeature(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.IsError != true {
+		t.Error("should return error when no LLM provider configured")
+	}
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, "LLM provider") {
+		t.Error("error should mention LLM provider")
+	}
+}
+
+func TestAddFeature_NoManifest(t *testing.T) {
+	// Create server with no manifest
+	s, _ := store.New(":memory:")
+	bus := engine.NewBus()
+	eng := engine.NewEngine(engine.EngineConfig{
+		Bus:     bus,
+		Store:   s,
+		Trie:    router.NewTrie(),
+		Scripts: make(map[string]string),
+		VibeDir: t.TempDir(),
+	})
+	srv := &Server{eng: eng, store: s, provider: &fakeProvider{}, vibeDir: t.TempDir()}
+
+	req := mcplib.CallToolRequest{}
+	setArgs(&req, map[string]any{
+		"description": "Add comments",
+	})
+
+	result, err := srv.handleAddFeature(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.IsError != true {
+		t.Error("should return error when no manifest exists")
+	}
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, "create_api") {
+		t.Error("error should mention create_api")
+	}
+}
+
+func TestUndo(t *testing.T) {
+	srv := setupTestServer(t)
+
+	result, err := srv.handleUndo(context.Background(), mcplib.CallToolRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// May succeed or fail (no snapshots) — just shouldn't panic
+	text := result.Content[0].(mcplib.TextContent).Text
+	if text == "" {
+		t.Error("should return a message")
+	}
+}
+
+// fakeProvider is a minimal LLM provider for tests that check validation gates
+// before the LLM is actually called.
+type fakeProvider struct{}
+
+func (f *fakeProvider) Generate(ctx context.Context, current *manifest.Manifest, prompt string, history []llm.Message) (*manifest.Manifest, error) {
+	return nil, fmt.Errorf("fakeProvider: not implemented")
 }

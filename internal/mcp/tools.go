@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/vibeserve/vibeserve/internal/engine"
 )
 
 // handleListRoutes returns all API routes.
@@ -155,6 +157,84 @@ func (srv *Server) handleInsertData(ctx context.Context, req mcplib.CallToolRequ
 
 	result, _ := json.MarshalIndent(row, "", "  ")
 	return mcplib.NewToolResultText(string(result)), nil
+}
+
+// handleCreateAPI creates an API from a natural language description.
+func (srv *Server) handleCreateAPI(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	if srv.provider == nil {
+		return errorResult("No LLM provider configured. Run 'vibeserve' once to set up your AI provider."), nil
+	}
+
+	args := req.GetArguments()
+	description, _ := args["description"].(string)
+	if description == "" {
+		return errorResult("description parameter is required"), nil
+	}
+
+	result, err := srv.eng.ApplyAutoApprove(ctx, description)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Failed to create API: %v", err)), nil
+	}
+
+	if result.ChatResponse != "" {
+		return mcplib.NewToolResultText(result.ChatResponse), nil
+	}
+
+	return formatApplyResult(result), nil
+}
+
+// handleAddFeature adds a feature to the existing API.
+func (srv *Server) handleAddFeature(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	if srv.provider == nil {
+		return errorResult("No LLM provider configured. Run 'vibeserve' once to set up your AI provider."), nil
+	}
+
+	args := req.GetArguments()
+	description, _ := args["description"].(string)
+	if description == "" {
+		return errorResult("description parameter is required"), nil
+	}
+
+	m := srv.eng.Manifest()
+	if m == nil || len(m.Schemas) == 0 {
+		return errorResult("No API exists yet. Use create_api first."), nil
+	}
+
+	result, err := srv.eng.ApplyAutoApprove(ctx, description)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Failed to add feature: %v", err)), nil
+	}
+
+	if result.ChatResponse != "" {
+		return mcplib.NewToolResultText(result.ChatResponse), nil
+	}
+
+	return formatApplyResult(result), nil
+}
+
+// handleUndo rolls back the last schema change.
+func (srv *Server) handleUndo(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	err := srv.eng.Undo()
+	if err != nil {
+		return errorResult(fmt.Sprintf("Undo failed: %v", err)), nil
+	}
+	return mcplib.NewToolResultText("Undo successful. Last change has been rolled back."), nil
+}
+
+// formatApplyResult formats an ApplyResult into readable MCP text.
+func formatApplyResult(result *engine.ApplyResult) *mcplib.CallToolResult {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Applied %d changes:\n\n", len(result.Changes)))
+	for _, c := range result.Changes {
+		b.WriteString(fmt.Sprintf("  - [%s] %s\n", c.Type, c.Detail))
+	}
+	if len(result.Warnings) > 0 {
+		b.WriteString("\nWarnings:\n")
+		for _, w := range result.Warnings {
+			b.WriteString(fmt.Sprintf("  - %s\n", w))
+		}
+	}
+	return mcplib.NewToolResultText(b.String())
 }
 
 // errorResult creates an MCP error result.

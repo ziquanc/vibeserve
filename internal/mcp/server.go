@@ -196,4 +196,33 @@ func (srv *Server) registerTools(s *mcpserver.MCPServer) {
 		),
 		srv.handleInsertData,
 	)
+
+	s.AddTool(
+		mcplib.NewTool("create_api",
+			mcplib.WithDescription("Create an API from a natural language description. Generates database tables, REST routes, business logic, and seed data. Example: 'Create a task management API with users, projects, and tasks.'"),
+			mcplib.WithString("description",
+				mcplib.Required(),
+				mcplib.Description("Natural language description of the API to create"),
+			),
+		),
+		srv.handleCreateAPI,
+	)
+
+	s.AddTool(
+		mcplib.NewTool("add_feature",
+			mcplib.WithDescription("Add a feature to the existing API. Can add new tables, columns, routes, or modify behavior. Example: 'Add a comments feature to tasks with author and timestamp.'"),
+			mcplib.WithString("description",
+				mcplib.Required(),
+				mcplib.Description("Natural language description of the feature to add"),
+			),
+		),
+		srv.handleAddFeature,
+	)
+
+	s.AddTool(
+		mcplib.NewTool("undo",
+			mcplib.WithDescription("Undo the last schema change. Restores the database and manifest to the previous snapshot."),
+		),
+		srv.handleUndo,
+	)
 }
