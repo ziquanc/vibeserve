@@ -225,4 +225,20 @@ func (srv *Server) registerTools(s *mcpserver.MCPServer) {
 		),
 		srv.handleUndo,
 	)
+
+	s.AddTool(
+		mcplib.NewTool("export_project",
+			mcplib.WithDescription("Export the API as a standalone production project. Supports Go (Chi router) and Express.js (with SQLite or PostgreSQL)."),
+			mcplib.WithString("format",
+				mcplib.Description("Export format: 'go' or 'express' (default: go)"),
+			),
+			mcplib.WithString("db",
+				mcplib.Description("Database type for Express export: 'sqlite' or 'postgres' (default: sqlite)"),
+			),
+			mcplib.WithString("output_dir",
+				mcplib.Description("Output directory path (default: auto-generated from API name)"),
+			),
+		),
+		srv.handleExportProject,
+	)
 }

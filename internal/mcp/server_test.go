@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -309,6 +311,60 @@ func TestUndo(t *testing.T) {
 	text := result.Content[0].(mcplib.TextContent).Text
 	if text == "" {
 		t.Error("should return a message")
+	}
+}
+
+func TestExportProject(t *testing.T) {
+	srv := setupTestServer(t)
+
+	outDir := filepath.Join(t.TempDir(), "exported")
+	req := mcplib.CallToolRequest{}
+	setArgs(&req, map[string]any{
+		"format":     "express",
+		"output_dir": outDir,
+	})
+
+	result, err := srv.handleExportProject(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, outDir) {
+		t.Error("result should contain output directory")
+	}
+
+	// Verify files were created
+	if _, err := os.Stat(filepath.Join(outDir, "package.json")); os.IsNotExist(err) {
+		t.Error("package.json should exist in exported directory")
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "server.js")); os.IsNotExist(err) {
+		t.Error("server.js should exist in exported directory")
+	}
+}
+
+func TestExportProject_NoManifest(t *testing.T) {
+	s, _ := store.New(":memory:")
+	bus := engine.NewBus()
+	eng := engine.NewEngine(engine.EngineConfig{
+		Bus:     bus,
+		Store:   s,
+		Trie:    router.NewTrie(),
+		Scripts: make(map[string]string),
+		VibeDir: t.TempDir(),
+	})
+	srv := &Server{eng: eng, store: s, vibeDir: t.TempDir()}
+
+	req := mcplib.CallToolRequest{}
+	setArgs(&req, map[string]any{"format": "express"})
+
+	result, err := srv.handleExportProject(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.IsError != true {
+		t.Error("should return error when no manifest exists")
 	}
 }
 

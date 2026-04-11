@@ -9,6 +9,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
+	"github.com/vibeserve/vibeserve/internal/export"
 )
 
 // handleListRoutes returns all API routes.
@@ -219,6 +220,53 @@ func (srv *Server) handleUndo(ctx context.Context, req mcplib.CallToolRequest) (
 		return errorResult(fmt.Sprintf("Undo failed: %v", err)), nil
 	}
 	return mcplib.NewToolResultText("Undo successful. Last change has been rolled back."), nil
+}
+
+// handleExportProject exports the API as a standalone project.
+func (srv *Server) handleExportProject(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	m := srv.eng.Manifest()
+	if m == nil || len(m.Schemas) == 0 {
+		return errorResult("No API to export. Use create_api first."), nil
+	}
+
+	args := req.GetArguments()
+
+	format, _ := args["format"].(string)
+	if format == "" {
+		format = "go"
+	}
+	if format != "go" && format != "express" {
+		return errorResult(fmt.Sprintf("Unsupported format %q. Use 'go' or 'express'.", format)), nil
+	}
+
+	dbType, _ := args["db"].(string)
+	if dbType == "" {
+		dbType = "sqlite"
+	}
+
+	outDir, _ := args["output_dir"].(string)
+	if outDir == "" {
+		outDir = export.DefaultOutputDir(m)
+	}
+
+	exp := export.NewExporter(m, outDir)
+	exp.SetVibeDir(srv.vibeDir)
+	if dbType != "" {
+		exp.SetDBType(dbType)
+	}
+
+	var exportErr error
+	switch format {
+	case "express":
+		exportErr = exp.RunExpress()
+	default:
+		exportErr = exp.Run()
+	}
+	if exportErr != nil {
+		return errorResult(fmt.Sprintf("Export failed: %v", exportErr)), nil
+	}
+
+	return mcplib.NewToolResultText(fmt.Sprintf("Exported %s project to %s (format: %s, db: %s)", m.Name, outDir, format, dbType)), nil
 }
 
 // formatApplyResult formats an ApplyResult into readable MCP text.
