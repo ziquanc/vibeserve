@@ -225,8 +225,63 @@ func (sg *SchemaGraph) BuildSchemaSummary() string {
 	return b.String()
 }
 
-// singularize is a naive English singularizer.
+// irregularPlurals maps singular -> plural for common irregular English nouns.
+var irregularPlurals = map[string]string{
+	"person":   "people",
+	"child":    "children",
+	"man":      "men",
+	"woman":    "women",
+	"mouse":    "mice",
+	"goose":    "geese",
+	"tooth":    "teeth",
+	"foot":     "feet",
+	"ox":       "oxen",
+	"leaf":     "leaves",
+	"life":     "lives",
+	"knife":    "knives",
+	"wife":     "wives",
+	"half":     "halves",
+	"shelf":    "shelves",
+	"wolf":     "wolves",
+	"datum":    "data",
+	"medium":   "media",
+	"analysis": "analyses",
+	"crisis":   "crises",
+	"thesis":   "theses",
+}
+
+// irregularSingulars is the reverse of irregularPlurals.
+var irregularSingulars map[string]string
+
+func init() {
+	irregularSingulars = make(map[string]string, len(irregularPlurals))
+	for s, p := range irregularPlurals {
+		irregularSingulars[p] = s
+	}
+}
+
+// uncountable words that are the same in singular and plural.
+var uncountable = map[string]bool{
+	"sheep": true, "fish": true, "deer": true, "series": true,
+	"species": true, "money": true, "rice": true, "information": true,
+	"equipment": true,
+}
+
+// singularize converts an English plural to its singular form.
 func singularize(s string) string {
+	lower := strings.ToLower(s)
+
+	// Check uncountable
+	if uncountable[lower] {
+		return s
+	}
+
+	// Check irregular
+	if sing, ok := irregularSingulars[lower]; ok {
+		return sing
+	}
+
+	// Existing suffix rules
 	if strings.HasSuffix(s, "ies") && len(s) > 3 {
 		return s[:len(s)-3] + "y"
 	}
@@ -239,8 +294,21 @@ func singularize(s string) string {
 	return s
 }
 
-// pluralize is a naive English pluralizer.
+// pluralize converts an English singular to its plural form.
 func pluralize(s string) string {
+	lower := strings.ToLower(s)
+
+	// Check uncountable
+	if uncountable[lower] {
+		return s
+	}
+
+	// Check irregular
+	if plural, ok := irregularPlurals[lower]; ok {
+		return plural
+	}
+
+	// Existing suffix rules
 	if strings.HasSuffix(s, "s") || strings.HasSuffix(s, "x") || strings.HasSuffix(s, "z") {
 		return s + "es"
 	}
