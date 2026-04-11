@@ -16,11 +16,25 @@ import (
 // It receives the request details and returns (statusCode, body, headers, error).
 type ProxyHandler func(ctx context.Context, method, path string, body map[string]any, queryParams map[string]string, headers map[string]string) (int, map[string]any, map[string]string, error)
 
+// ScriptResolver looks up a script's code by name. Returns the code and true
+// if found, or ("", false) otherwise. Implementations must be safe for
+// concurrent use.
+type ScriptResolver func(name string) (code string, ok bool)
+
+// MapScriptResolver returns a ScriptResolver backed by a plain map.
+// Only safe when the map is not written to concurrently.
+func MapScriptResolver(scripts map[string]string) ScriptResolver {
+	return func(name string) (string, bool) {
+		code, ok := scripts[name]
+		return code, ok
+	}
+}
+
 // NewHandler creates an http.Handler that routes requests through the trie,
 // executes the matched Tengo script via the runtime, and writes a JSON response.
 // If cors is true, CORS headers are added to all responses and OPTIONS
 // preflight requests return 204 No Content.
-func NewHandler(trie *Trie, scripts map[string]string, rt *runtime.Runtime, cors bool) http.Handler {
+func NewHandler(trie *Trie, scripts ScriptResolver, rt *runtime.Runtime, cors bool) http.Handler {
 	return NewProxyHandler(trie, scripts, rt, cors, nil)
 }
 
@@ -28,7 +42,7 @@ func NewHandler(trie *Trie, scripts map[string]string, rt *runtime.Runtime, cors
 // non-nil and no route matches, it calls proxyFn instead of returning 404.
 // After proxyFn generates the route, the handler retries the trie lookup and
 // executes the newly registered script.
-func NewProxyHandler(trie *Trie, scripts map[string]string, rt *runtime.Runtime, cors bool, proxyFn ProxyHandler) http.Handler {
+func NewProxyHandler(trie *Trie, scripts ScriptResolver, rt *runtime.Runtime, cors bool, proxyFn ProxyHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Set CORS headers on every response when enabled.
 		if cors {
@@ -70,7 +84,7 @@ func isSystemPath(path string) bool {
 }
 
 // handleProxyRequest processes a request through the proxy engine.
-func handleProxyRequest(w http.ResponseWriter, r *http.Request, trie *Trie, scripts map[string]string, rt *runtime.Runtime, proxyFn ProxyHandler) {
+func handleProxyRequest(w http.ResponseWriter, r *http.Request, trie *Trie, scripts ScriptResolver, rt *runtime.Runtime, proxyFn ProxyHandler) {
 	// Parse request body for methods that carry a body.
 	var body map[string]any
 	var rawBody []byte
@@ -138,9 +152,9 @@ func handleProxyRequest(w http.ResponseWriter, r *http.Request, trie *Trie, scri
 }
 
 // executeAndRespond resolves a script, executes it, and writes the response.
-func executeAndRespond(w http.ResponseWriter, r *http.Request, scripts map[string]string, rt *runtime.Runtime, scriptName string, pathParams map[string]string) {
+func executeAndRespond(w http.ResponseWriter, r *http.Request, scripts ScriptResolver, rt *runtime.Runtime, scriptName string, pathParams map[string]string) {
 	// Resolve script code.
-	code, ok := scripts[scriptName]
+	code, ok := scripts(scriptName)
 	if !ok {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "script not found: " + scriptName})
 		return

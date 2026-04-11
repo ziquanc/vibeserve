@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/vibeserve/vibeserve/internal/llm"
 	"github.com/vibeserve/vibeserve/internal/manifest"
@@ -16,6 +17,7 @@ import (
 
 // Engine coordinates the full cycle: prompt → LLM → validate → diff → migrate → update routes.
 type Engine struct {
+	mu               sync.RWMutex // protects manifest and scripts
 	bus              *Bus
 	store            SchemaStore
 	trie             RouteTrie
@@ -66,7 +68,17 @@ type ApplyResult struct {
 
 // Manifest returns the current manifest.
 func (e *Engine) Manifest() *manifest.Manifest {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.manifest
+}
+
+// GetScript returns the code for a named script, safe for concurrent access.
+func (e *Engine) GetScript(name string) (string, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	code, ok := e.scripts[name]
+	return code, ok
 }
 
 // History returns the conversation history.
@@ -281,11 +293,15 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 
 		case manifest.ChangeAddScript, manifest.ChangeUpdateScript:
 			e.bus.Publish(Event{Type: EventScriptValidationStarted, Data: c.Script.Name})
+			e.mu.Lock()
 			e.scripts[c.Script.Name] = c.Script.Code
+			e.mu.Unlock()
 			e.bus.Publish(Event{Type: EventScriptLoaded, Data: c.Script.Name})
 
 		case manifest.ChangeRemoveScript:
+			e.mu.Lock()
 			delete(e.scripts, c.Script.Name)
+			e.mu.Unlock()
 		}
 	}
 
@@ -301,7 +317,9 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 	}
 
 	// 9. Save manifest to disk
+	e.mu.Lock()
 	e.manifest = newManifest
+	e.mu.Unlock()
 	result.Manifest = newManifest
 
 	if err := e.saveManifest(); err != nil {
@@ -355,7 +373,9 @@ func (e *Engine) Undo() error {
 		if len(e.history) >= 2 {
 			e.history = e.history[:len(e.history)-2]
 		}
+		e.mu.Lock()
 		e.manifest = prev
+		e.mu.Unlock()
 	}
 
 	return nil
@@ -366,7 +386,9 @@ func (e *Engine) saveManifest() error {
 	if e.vibeDir == "" {
 		return nil
 	}
+	e.mu.RLock()
 	data, err := json.MarshalIndent(e.manifest, "", "  ")
+	e.mu.RUnlock()
 	if err != nil {
 		return err
 	}

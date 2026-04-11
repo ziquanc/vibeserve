@@ -152,7 +152,7 @@ func TestIntegration_EngineEvolvesManifest(t *testing.T) {
 
 	// ── 9. Build HTTP handler using the (now-mutated) trie and scripts ─────────
 	rt := runtime.New(s, bus)
-	handler := router.NewHandler(trie, scripts, rt, false)
+	handler := router.NewHandler(trie, router.MapScriptResolver(scripts), rt, false)
 
 	// ── 10. Verify GET /customers returns the seeded customers ────────────────
 	req := httptest.NewRequest(http.MethodGet, "/customers", nil)

@@ -516,10 +516,10 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 	var apiHandler http.Handler
 	if proxyMode {
 		proxyEng := engine.NewProxyEngine(eng)
-		apiHandler = router.NewProxyHandler(trie, scripts, rt, cfg.Server.CORS, proxyEng.HandleUnknownRequest)
+		apiHandler = router.NewProxyHandler(trie, eng.GetScript, rt, cfg.Server.CORS, proxyEng.HandleUnknownRequest)
 		log.Printf("Proxy/auto-evolve mode enabled — unmatched routes will be auto-generated")
 	} else {
-		apiHandler = router.NewHandler(trie, scripts, rt, cfg.Server.CORS)
+		apiHandler = router.NewHandler(trie, eng.GetScript, rt, cfg.Server.CORS)
 	}
 
 	consoleHandler := web.NewConsole(eng, s)
@@ -616,7 +616,6 @@ func runUp(manifestPath, host string, port int) error {
 	}
 
 	rt := runtime.New(s, bus)
-	apiHandler := router.NewHandler(trie, scripts, rt, true)
 
 	eng := engine.NewEngine(engine.EngineConfig{
 		Bus:      bus,
@@ -629,6 +628,8 @@ func runUp(manifestPath, host string, port int) error {
 			return store.New(dsn)
 		},
 	})
+
+	apiHandler := router.NewHandler(trie, eng.GetScript, rt, true)
 
 	consoleHandler := web.NewConsole(eng, s)
 	wsHub := web.NewWSHub(bus)

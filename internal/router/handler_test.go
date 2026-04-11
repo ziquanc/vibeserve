@@ -69,7 +69,7 @@ if is_undefined(row) {
 
 	rt := runtime.New(s, engine.NewBus())
 
-	return NewHandler(tr, scripts, rt, cors)
+	return NewHandler(tr, MapScriptResolver(scripts), rt, cors)
 }
 
 func TestHandlerListItems(t *testing.T) {
@@ -228,7 +228,7 @@ response.json(result)`
 		return 0, map[string]any{"__vibeserve_retry__": true}, map[string]string{"X-VibeServe-Generated": "true"}, nil
 	}
 
-	handler := NewProxyHandler(tr, scripts, rt, false, proxyFn)
+	handler := NewProxyHandler(tr, MapScriptResolver(scripts), rt, false, proxyFn)
 
 	// First request to /users should trigger proxy
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
@@ -270,7 +270,7 @@ func TestHandlerProxyModeSystemPathsSkipped(t *testing.T) {
 		return 200, map[string]any{"ok": true}, nil, nil
 	}
 
-	handler := NewProxyHandler(tr, scripts, rt, false, proxyFn)
+	handler := NewProxyHandler(tr, MapScriptResolver(scripts), rt, false, proxyFn)
 
 	systemPaths := []string{"/_console", "/_api/something", "/_blueprint", "/_swagger", "/_ws"}
 	for _, path := range systemPaths {
@@ -320,7 +320,7 @@ func TestHandlerNoProxyReturns404(t *testing.T) {
 	rt := runtime.New(s, engine.NewBus())
 
 	// No proxy handler — should return 404
-	handler := NewProxyHandler(tr, scripts, rt, false, nil)
+	handler := NewProxyHandler(tr, MapScriptResolver(scripts), rt, false, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
 	w := httptest.NewRecorder()

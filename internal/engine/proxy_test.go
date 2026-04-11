@@ -127,7 +127,7 @@ func TestProxyEngine_AutoGenerateEndpoint(t *testing.T) {
 
 	// Create HTTP handler with proxy
 	rt := runtime.New(s, bus)
-	handler := router.NewProxyHandler(trie, scripts, rt, true, proxyEng.HandleUnknownRequest)
+	handler := router.NewProxyHandler(trie, eng.GetScript, rt, true, proxyEng.HandleUnknownRequest)
 
 	// Step 1: POST /products with body triggers deterministic table creation.
 	// The intent-aware proxy creates a table with columns inferred from the body

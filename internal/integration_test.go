@@ -50,7 +50,7 @@ func setupCarRentalServer(t *testing.T) http.Handler {
 	}
 
 	rt := runtime.New(s, engine.NewBus())
-	return router.NewHandler(trie, scripts, rt, true)
+	return router.NewHandler(trie, router.MapScriptResolver(scripts), rt, true)
 }
 
 func TestIntegration_ListVehicles(t *testing.T) {

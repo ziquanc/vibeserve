@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
@@ -137,12 +138,12 @@ response.json(result, 201)`,
 	})
 
 	// Track events
-	var autoFixStarted, autoFixCompleted int
+	var autoFixStarted, autoFixCompleted atomic.Int32
 	bus.Subscribe(engine.EventAutoFixStarted, func(e engine.Event) {
-		autoFixStarted++
+		autoFixStarted.Add(1)
 	})
 	bus.Subscribe(engine.EventAutoFixCompleted, func(e engine.Event) {
-		autoFixCompleted++
+		autoFixCompleted.Add(1)
 		info := e.Data.(engine.AutoFixInfo)
 		if !info.Fixed {
 			t.Errorf("expected auto-fix to succeed, but it reported failure")
@@ -170,11 +171,11 @@ response.json(result, 201)`,
 		t.Errorf("expected at least 2 LLM calls (generate + fix), got %d", provider.calls)
 	}
 
-	if autoFixStarted != 1 {
-		t.Errorf("expected 1 auto-fix start event, got %d", autoFixStarted)
+	if v := autoFixStarted.Load(); v != 1 {
+		t.Errorf("expected 1 auto-fix start event, got %d", v)
 	}
-	if autoFixCompleted != 1 {
-		t.Errorf("expected 1 auto-fix completed event, got %d", autoFixCompleted)
+	if v := autoFixCompleted.Load(); v != 1 {
+		t.Errorf("expected 1 auto-fix completed event, got %d", v)
 	}
 }
 
