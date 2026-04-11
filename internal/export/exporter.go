@@ -12,10 +12,11 @@ import (
 // Exporter orchestrates the 7-stage export pipeline, writing a complete Go
 // project to disk from a VibeServe manifest.
 type Exporter struct {
-	manifest *manifest.Manifest
-	outDir   string
-	vibeDir  string
-	dbType   string
+	manifest   *manifest.Manifest
+	outDir     string
+	vibeDir    string
+	dbType     string
+	typescript bool
 }
 
 // NewExporter creates an Exporter that will write the generated project to outDir.
@@ -43,6 +44,16 @@ func (e *Exporter) DBType() string {
 		return e.manifest.Database
 	}
 	return "sqlite"
+}
+
+// SetTypeScript enables or disables TypeScript type generation for Express exports.
+func (e *Exporter) SetTypeScript(enabled bool) {
+	e.typescript = enabled
+}
+
+// TypeScript returns whether TypeScript type generation is enabled.
+func (e *Exporter) TypeScript() bool {
+	return e.typescript
 }
 
 // SetVibeDir overrides the default ".vibe" directory (useful for testing).

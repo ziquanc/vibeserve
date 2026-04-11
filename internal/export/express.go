@@ -56,7 +56,7 @@ func (e *Exporter) RunExpress() error {
 	}
 
 	// Stage 3: Generate scaffold files — pass dbType to all generators.
-	packageJSON := GeneratePackageJSON(m, dbType)
+	packageJSON := GeneratePackageJSON(m, dbType, e.typescript)
 	if err := writeFile(filepath.Join(e.outDir, "package.json"), packageJSON); err != nil {
 		return fmt.Errorf("write package.json: %w", err)
 	}
@@ -90,6 +90,19 @@ func (e *Exporter) RunExpress() error {
 	openAPIContent := GenerateOpenAPI(m)
 	if err := writeFile(filepath.Join(e.outDir, "openapi.yaml"), openAPIContent); err != nil {
 		return fmt.Errorf("write openapi.yaml: %w", err)
+	}
+
+	// Stage 4.5: Generate TypeScript types if enabled.
+	if e.typescript {
+		typesTS := GenerateTypeScript(m.Schemas)
+		if err := writeFile(filepath.Join(e.outDir, "src", "types.ts"), typesTS); err != nil {
+			return fmt.Errorf("write types.ts: %w", err)
+		}
+
+		tsConfig := GenerateTSConfig()
+		if err := writeFile(filepath.Join(e.outDir, "tsconfig.json"), tsConfig); err != nil {
+			return fmt.Errorf("write tsconfig.json: %w", err)
+		}
 	}
 
 	// Stage 5: Generate database model — branch on dbType.

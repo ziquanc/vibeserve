@@ -9,7 +9,8 @@ import (
 )
 
 // GeneratePackageJSON creates a package.json for the Express project.
-func GeneratePackageJSON(m *manifest.Manifest, dbType string) string {
+// When typescript is true, @types packages and the typescript compiler are added.
+func GeneratePackageJSON(m *manifest.Manifest, dbType string, typescript ...bool) string {
 	type PackageJSON struct {
 		Name            string            `json:"name"`
 		Version         string            `json:"version"`
@@ -36,6 +37,23 @@ func GeneratePackageJSON(m *manifest.Manifest, dbType string) string {
 		deps["pg"] = "^8.13.0"
 	} else {
 		deps["better-sqlite3"] = "^11.6.0"
+	}
+
+	ts := len(typescript) > 0 && typescript[0]
+	if ts {
+		deps["typescript"] = "^5.5.0"
+		deps["@types/node"] = "^20.0.0"
+		deps["@types/express"] = "^4.17.0"
+		deps["@types/cors"] = "^2.8.0"
+		deps["@types/morgan"] = "^1.9.0"
+		deps["@types/compression"] = "^1.7.0"
+		deps["@types/jsonwebtoken"] = "^9.0.0"
+		deps["@types/bcryptjs"] = "^2.4.0"
+		if dbType == "postgres" {
+			deps["@types/pg"] = "^8.11.0"
+		} else {
+			deps["@types/better-sqlite3"] = "^7.6.0"
+		}
 	}
 
 	pkg := PackageJSON{

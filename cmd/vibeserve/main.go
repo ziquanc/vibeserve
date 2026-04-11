@@ -164,13 +164,14 @@ func exportCmd() *cobra.Command {
 	var ai bool
 	var format string
 	var db string
+	var typescript bool
 
 	cmd := &cobra.Command{
 		Use:   "export [output-dir]",
 		Short: "Export a standalone server project from the manifest",
 		Long:  "Generate a production-ready project from the current VibeServe manifest. Supports Go (default) and Express.js formats.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runExport(manifestPath, args, force, ai, format, db)
+			return runExport(manifestPath, args, force, ai, format, db, typescript)
 		},
 	}
 
@@ -179,6 +180,7 @@ func exportCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&ai, "ai", false, "Use LLM to translate complex Tengo logic")
 	cmd.Flags().StringVar(&format, "format", "go", "Export format: go or express")
 	cmd.Flags().StringVar(&db, "db", "", "Database type: sqlite (default) or postgres")
+	cmd.Flags().BoolVar(&typescript, "typescript", false, "Generate TypeScript type definitions")
 
 	return cmd
 }
@@ -194,7 +196,7 @@ func mcpCmd() *cobra.Command {
 	}
 }
 
-func runExport(manifestPath string, args []string, force, ai bool, format, db string) error {
+func runExport(manifestPath string, args []string, force, ai bool, format, db string, typescript bool) error {
 	// Load manifest
 	m, err := manifest.LoadFromFile(manifestPath)
 	if err != nil {
@@ -238,6 +240,9 @@ func runExport(manifestPath string, args []string, force, ai bool, format, db st
 
 	if db != "" {
 		exp.SetDBType(db)
+	}
+	if typescript {
+		exp.SetTypeScript(true)
 	}
 
 	var exportErr error
