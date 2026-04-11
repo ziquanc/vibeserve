@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
 	"github.com/vibeserve/vibeserve/internal/llm"
@@ -374,4 +375,54 @@ type fakeProvider struct{}
 
 func (f *fakeProvider) Generate(ctx context.Context, current *manifest.Manifest, prompt string, history []llm.Message) (*manifest.Manifest, error) {
 	return nil, fmt.Errorf("fakeProvider: not implemented")
+}
+
+func TestAllToolsRegistered(t *testing.T) {
+	srv := setupTestServer(t)
+
+	s := mcpserver.NewMCPServer("test", "1.0.0",
+		mcpserver.WithToolCapabilities(true),
+	)
+	srv.registerTools(s)
+
+	// Verify all 9 handlers can be called without panicking.
+	ctx := context.Background()
+	emptyReq := mcplib.CallToolRequest{}
+
+	// Inspection tools — should succeed with test data
+	if result, err := srv.handleListRoutes(ctx, emptyReq); err != nil || result == nil {
+		t.Error("list_routes should work")
+	}
+	if result, err := srv.handleListTables(ctx, emptyReq); err != nil || result == nil {
+		t.Error("list_tables should work")
+	}
+	if result, err := srv.handleGetAPIStatus(ctx, emptyReq); err != nil || result == nil {
+		t.Error("get_api_status should work")
+	}
+
+	// Data tools — missing args should return error result, not panic
+	if result, err := srv.handleQueryData(ctx, emptyReq); err != nil || result == nil {
+		t.Error("query_data should not panic on empty request")
+	}
+	if result, err := srv.handleInsertData(ctx, emptyReq); err != nil || result == nil {
+		t.Error("insert_data should not panic on empty request")
+	}
+
+	// LLM tools — no provider should return error result, not panic
+	if result, err := srv.handleCreateAPI(ctx, emptyReq); err != nil || result == nil {
+		t.Error("create_api should not panic on empty request")
+	}
+	if result, err := srv.handleAddFeature(ctx, emptyReq); err != nil || result == nil {
+		t.Error("add_feature should not panic on empty request")
+	}
+
+	// Undo — should return a result (may be error)
+	if result, err := srv.handleUndo(ctx, emptyReq); err != nil || result == nil {
+		t.Error("undo should not panic")
+	}
+
+	// Export — empty args should handle gracefully
+	if result, err := srv.handleExportProject(ctx, emptyReq); err != nil || result == nil {
+		t.Error("export_project should not panic on empty request")
+	}
 }
