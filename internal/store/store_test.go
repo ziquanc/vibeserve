@@ -162,12 +162,16 @@ func TestDelete_Exists(t *testing.T) {
 		t.Error("expected Delete to return true")
 	}
 
+	// Soft-deleted row should still exist in DB with deleted_at set
 	row, err := s.QueryOne("SELECT * FROM users WHERE id = ?", []any{id})
 	if err != nil {
 		t.Fatalf("QueryOne after delete: %v", err)
 	}
-	if row != nil {
-		t.Error("expected row to be gone after delete")
+	if row == nil {
+		t.Fatal("expected soft-deleted row to still exist in DB")
+	}
+	if row["deleted_at"] == nil {
+		t.Error("expected deleted_at to be set after soft delete")
 	}
 }
 
@@ -338,5 +342,99 @@ func TestStoreDSN(t *testing.T) {
 	defer s.Close()
 	if s.DSN() != ":memory:" {
 		t.Errorf("expected ':memory:', got %q", s.DSN())
+	}
+}
+
+func TestStore_SoftDelete(t *testing.T) {
+	s := newTestStore(t)
+
+	// Create a separate table for this test
+	schema := manifest.Schema{
+		Table: "items",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}
+	if err := s.ApplySchemas([]manifest.Schema{schema}); err != nil {
+		t.Fatal(err)
+	}
+
+	row, err := s.Insert("items", map[string]any{"name": "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := row["id"]
+
+	// Delete should soft-delete
+	deleted, err := s.Delete("items", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !deleted {
+		t.Error("Delete should return true")
+	}
+
+	// Row should still exist in DB but with deleted_at set
+	rows, err := s.Query("SELECT * FROM items WHERE id = ?", []any{id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatal("soft-deleted row should still exist in DB")
+	}
+	if rows[0]["deleted_at"] == nil {
+		t.Error("deleted_at should be set after soft delete")
+	}
+
+	// Count should exclude soft-deleted rows
+	count, err := s.Count("items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("Count should exclude soft-deleted rows, got %d", count)
+	}
+
+	// Delete again should return false (already deleted)
+	deleted2, err := s.Delete("items", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted2 {
+		t.Error("second Delete should return false (already soft-deleted)")
+	}
+}
+
+func TestStore_UpdateSetsUpdatedAt(t *testing.T) {
+	s := newTestStore(t)
+
+	schema := manifest.Schema{
+		Table: "items",
+		Columns: []manifest.Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "name", Type: "TEXT"},
+		},
+	}
+	if err := s.ApplySchemas([]manifest.Schema{schema}); err != nil {
+		t.Fatal(err)
+	}
+
+	row, err := s.Insert("items", map[string]any{"name": "original"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Update
+	updated, err := s.Update("items", row["id"], map[string]any{"name": "changed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if updated["name"] != "changed" {
+		t.Errorf("name should be 'changed', got %v", updated["name"])
+	}
+	if updated["updated_at"] == nil {
+		t.Error("updated_at should be set after update")
 	}
 }

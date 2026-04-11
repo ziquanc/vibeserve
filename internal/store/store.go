@@ -214,6 +214,8 @@ func (s *Store) Update(table string, id any, data map[string]any) (map[string]an
 		setClauses = append(setClauses, col+" = ?")
 		values = append(values, s.convertForWrite(table, col, val))
 	}
+	// Auto-set updated_at timestamp.
+	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
 	values = append(values, id)
 
 	query := fmt.Sprintf(
@@ -227,7 +229,7 @@ func (s *Store) Update(table string, id any, data map[string]any) (map[string]an
 	}
 
 	// Re-read the full updated row
-	rows, err := s.db.Query(fmt.Sprintf("SELECT * FROM %s WHERE id = ?", table), id)
+	rows, err := s.db.Query(fmt.Sprintf("SELECT * FROM %s WHERE id = ? AND deleted_at IS NULL", table), id)
 	if err != nil {
 		return nil, fmt.Errorf("re-read after update: %w", err)
 	}
@@ -243,16 +245,16 @@ func (s *Store) Update(table string, id any, data map[string]any) (map[string]an
 	return results[0], nil
 }
 
-// Delete removes the row with the given id from table.
-// Returns true if a row was deleted, false if no row matched.
+// Delete soft-deletes the row with the given id by setting deleted_at.
+// Returns true if a row was soft-deleted, false if no matching active row existed.
 func (s *Store) Delete(table string, id any) (bool, error) {
 	if err := ValidateTableName(table); err != nil {
 		return false, err
 	}
-	query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
+	query := fmt.Sprintf("UPDATE %s SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL", table)
 	result, err := s.db.Exec(query, id)
 	if err != nil {
-		return false, fmt.Errorf("delete from %s: %w", table, err)
+		return false, fmt.Errorf("soft delete from %s: %w", table, err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
@@ -266,7 +268,7 @@ func (s *Store) Count(table string) (int, error) {
 	if err := ValidateTableName(table); err != nil {
 		return 0, err
 	}
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", table)
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE deleted_at IS NULL", table)
 	var count int
 	if err := s.db.QueryRow(query).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count %s: %w", table, err)
