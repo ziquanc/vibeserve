@@ -267,6 +267,11 @@ func (ia *IntentAnalyzer) buildColumnsFromBody(body map[string]any) []manifest.C
 	}
 
 	for k, v := range body {
+		// Validate column name to prevent SQL injection via body keys.
+		if !validColumnName.MatchString(k) {
+			continue // skip invalid column names silently
+		}
+
 		col := manifest.Column{
 			Name: k,
 			Type: guessType(v),

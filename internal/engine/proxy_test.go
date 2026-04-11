@@ -274,3 +274,81 @@ func TestProxyEngine_Interface(t *testing.T) {
 
 // readCloser wraps a byte slice as an io.ReadCloser (used indirectly).
 var _ io.ReadCloser = (io.ReadCloser)(nil)
+
+func TestIntentAnalyzer_RejectsInvalidColumnNames(t *testing.T) {
+	// With no existing schemas, Analyze creates a new table from body keys.
+	// Invalid column names (SQL injection attempts, spaces, etc.) must be filtered out.
+	m := &manifest.Manifest{
+		Version: "1.0",
+		Schemas: []manifest.Schema{},
+	}
+	analyzer := engine.NewIntentAnalyzer(m)
+
+	body := map[string]any{
+		"valid_name":             "test",
+		"name'; DROP TABLE x;--": "malicious",
+		"also invalid":           "nope", // spaces not allowed
+		"good_col":               123,
+	}
+
+	intent := analyzer.Analyze("POST", "/widgets", body, nil)
+	if intent.Type.String() != "CreateTable" {
+		t.Fatalf("expected CreateTable intent, got %s", intent.Type)
+	}
+
+	for _, col := range intent.Columns {
+		if col.Name == "name'; DROP TABLE x;--" {
+			t.Error("should reject column names with SQL injection characters")
+		}
+		if col.Name == "also invalid" {
+			t.Error("should reject column names with spaces")
+		}
+	}
+
+	// Verify valid columns survived
+	found := map[string]bool{}
+	for _, col := range intent.Columns {
+		found[col.Name] = true
+	}
+	if !found["valid_name"] {
+		t.Error("valid_name column should be present")
+	}
+	if !found["good_col"] {
+		t.Error("good_col column should be present")
+	}
+}
+
+func TestIntentAnalyzer_RejectsInvalidColumnNamesInAddColumn(t *testing.T) {
+	// When a table exists but body has new fields, invalid new column names
+	// must be filtered out of ColumnsToAdd.
+	m := &manifest.Manifest{
+		Version: "1.0",
+		Schemas: []manifest.Schema{
+			{
+				Table: "widgets",
+				Columns: []manifest.Column{
+					{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+					{Name: "name", Type: "TEXT"},
+				},
+			},
+		},
+	}
+	analyzer := engine.NewIntentAnalyzer(m)
+
+	body := map[string]any{
+		"name":               "existing field",
+		"color":              "blue",           // valid new column
+		"x'; DROP TABLE w;": "injection",      // invalid
+	}
+
+	intent := analyzer.Analyze("POST", "/widgets", body, nil)
+	if intent.Type.String() != "AddColumn" {
+		t.Fatalf("expected AddColumn intent, got %s", intent.Type)
+	}
+
+	for _, col := range intent.ColumnsToAdd {
+		if col.Name == "x'; DROP TABLE w;" {
+			t.Error("should reject invalid column names in ColumnsToAdd")
+		}
+	}
+}

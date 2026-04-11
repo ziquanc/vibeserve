@@ -2,10 +2,15 @@ package engine
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/vibeserve/vibeserve/internal/manifest"
 )
+
+// validColumnName matches only alphanumeric and underscore characters,
+// preventing SQL injection via body keys used as column names.
+var validColumnName = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 
 // TableInfo holds summary information about a database table.
 type TableInfo struct {
@@ -139,6 +144,10 @@ func (sg *SchemaGraph) GetMissingColumns(tableName string, body map[string]any) 
 	for k, v := range body {
 		if existing[strings.ToLower(k)] {
 			continue
+		}
+		// Validate column name to prevent SQL injection via body keys.
+		if !validColumnName.MatchString(k) {
+			continue // skip invalid column names
 		}
 		missing = append(missing, ColumnInfo{
 			Name: k,

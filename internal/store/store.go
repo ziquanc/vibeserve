@@ -23,6 +23,14 @@ func ValidateTableName(table string) error {
 	return nil
 }
 
+// ValidateColumnName rejects column names that could enable SQL injection.
+func ValidateColumnName(column string) error {
+	if !validTableName.MatchString(column) {
+		return fmt.Errorf("invalid column name: %q (only [a-zA-Z0-9_] allowed)", column)
+	}
+	return nil
+}
+
 // Compile-time check that *Store satisfies engine.DataStore.
 var _ engine.DataStore = (*Store)(nil)
 
