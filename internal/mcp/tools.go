@@ -99,6 +99,64 @@ func (srv *Server) handleGetAPIStatus(ctx context.Context, req mcplib.CallToolRe
 	return mcplib.NewToolResultText(string(data)), nil
 }
 
+// handleQueryData executes a read-only SQL query.
+func (srv *Server) handleQueryData(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	args := req.GetArguments()
+
+	sqlStr, _ := args["sql"].(string)
+	if sqlStr == "" {
+		return errorResult("sql parameter is required"), nil
+	}
+
+	trimmed := strings.TrimSpace(sqlStr)
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 || strings.ToUpper(fields[0]) != "SELECT" {
+		return errorResult("Only SELECT queries are allowed. Use insert_data for writes."), nil
+	}
+
+	var params []any
+	if rawParams, ok := args["params"]; ok {
+		if arr, ok := rawParams.([]any); ok {
+			params = arr
+		}
+	}
+
+	rows, err := srv.store.Query(sqlStr, params)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Query failed: %v", err)), nil
+	}
+
+	data, _ := json.MarshalIndent(rows, "", "  ")
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+// handleInsertData inserts a row into a table.
+func (srv *Server) handleInsertData(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	args := req.GetArguments()
+
+	table, _ := args["table"].(string)
+	if table == "" {
+		return errorResult("table parameter is required"), nil
+	}
+
+	rawData, ok := args["data"]
+	if !ok {
+		return errorResult("data parameter is required"), nil
+	}
+	data, ok := rawData.(map[string]any)
+	if !ok {
+		return errorResult("data must be a JSON object"), nil
+	}
+
+	row, err := srv.store.Insert(table, data)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Insert failed: %v", err)), nil
+	}
+
+	result, _ := json.MarshalIndent(row, "", "  ")
+	return mcplib.NewToolResultText(string(result)), nil
+}
+
 // errorResult creates an MCP error result.
 func errorResult(msg string) *mcplib.CallToolResult {
 	return &mcplib.CallToolResult{

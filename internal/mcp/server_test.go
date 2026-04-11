@@ -103,6 +103,76 @@ func TestListTables(t *testing.T) {
 	}
 }
 
+func TestQueryData(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Insert a row first
+	_, err := srv.store.Insert("users", map[string]any{"name": "Alice", "email": "alice@test.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"sql": "SELECT * FROM users",
+	}
+
+	result, err := srv.handleQueryData(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, "Alice") {
+		t.Error("query result should contain Alice")
+	}
+}
+
+func TestQueryData_RejectsNonSelect(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"sql": "DELETE FROM users WHERE id = 1",
+	}
+
+	result, err := srv.handleQueryData(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, "Only SELECT") {
+		t.Error("should reject non-SELECT queries")
+	}
+	if result.IsError != true {
+		t.Error("should be marked as error")
+	}
+}
+
+func TestInsertData(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"table": "users",
+		"data": map[string]any{
+			"name":  "Bob",
+			"email": "bob@test.com",
+		},
+	}
+
+	result, err := srv.handleInsertData(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := result.Content[0].(mcplib.TextContent).Text
+	if !strings.Contains(text, "Bob") {
+		t.Error("insert result should contain Bob")
+	}
+}
+
 func TestGetAPIStatus(t *testing.T) {
 	srv := setupTestServer(t)
 	result, err := srv.handleGetAPIStatus(context.Background(), mcplib.CallToolRequest{})

@@ -170,4 +170,30 @@ func (srv *Server) registerTools(s *mcpserver.MCPServer) {
 		),
 		srv.handleGetAPIStatus,
 	)
+
+	s.AddTool(
+		mcplib.NewTool("query_data",
+			mcplib.WithDescription("Execute a read-only SQL query against the API database. Only SELECT statements are allowed."),
+			mcplib.WithString("sql",
+				mcplib.Required(),
+				mcplib.Description("SQL SELECT query to execute"),
+			),
+		),
+		srv.handleQueryData,
+	)
+
+	s.AddTool(
+		mcplib.NewTool("insert_data",
+			mcplib.WithDescription("Insert a row into a database table. Returns the inserted row with generated ID."),
+			mcplib.WithString("table",
+				mcplib.Required(),
+				mcplib.Description("Table name to insert into"),
+			),
+			mcplib.WithObject("data",
+				mcplib.Required(),
+				mcplib.Description("Row data as key-value pairs"),
+			),
+		),
+		srv.handleInsertData,
+	)
 }
