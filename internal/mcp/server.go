@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/vibeserve/vibeserve/internal/config"
@@ -149,5 +150,24 @@ func createProvider(cfg *config.Config) (llm.Provider, error) {
 }
 
 func (srv *Server) registerTools(s *mcpserver.MCPServer) {
-	// Tools will be registered in subsequent tasks.
+	s.AddTool(
+		mcplib.NewTool("list_routes",
+			mcplib.WithDescription("List all API routes with their HTTP method, path, and description."),
+		),
+		srv.handleListRoutes,
+	)
+
+	s.AddTool(
+		mcplib.NewTool("list_tables",
+			mcplib.WithDescription("List all database tables with their columns, types, constraints, and row counts."),
+		),
+		srv.handleListTables,
+	)
+
+	s.AddTool(
+		mcplib.NewTool("get_api_status",
+			mcplib.WithDescription("Show the current API status: number of tables, routes, and project paths."),
+		),
+		srv.handleGetAPIStatus,
+	)
 }
