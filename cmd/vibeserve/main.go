@@ -18,6 +18,7 @@ import (
 	"github.com/vibeserve/vibeserve/internal/config"
 	"github.com/vibeserve/vibeserve/internal/export"
 	"github.com/vibeserve/vibeserve/internal/engine"
+	vibeservemcp "github.com/vibeserve/vibeserve/internal/mcp"
 	"github.com/vibeserve/vibeserve/internal/llm"
 	"github.com/vibeserve/vibeserve/internal/manifest"
 	"github.com/vibeserve/vibeserve/internal/router"
@@ -58,6 +59,7 @@ func main() {
 	rootCmd.AddCommand(devCmd())
 	rootCmd.AddCommand(undoCmd())
 	rootCmd.AddCommand(exportCmd())
+	rootCmd.AddCommand(mcpCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -179,6 +181,17 @@ func exportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&db, "db", "", "Database type: sqlite (default) or postgres")
 
 	return cmd
+}
+
+func mcpCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp",
+		Short: "Start MCP server for AI coding assistants",
+		Long:  "Start a Model Context Protocol (MCP) server over stdio. AI tools like Claude Code and Cursor can use this to create, modify, and query VibeServe APIs.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return vibeservemcp.Run(".vibe")
+		},
+	}
 }
 
 func runExport(manifestPath string, args []string, force, ai bool, format, db string) error {
