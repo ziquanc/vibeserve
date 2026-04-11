@@ -233,7 +233,7 @@ func (pe *ProxyEngine) handleRelationshipRoute(ctx context.Context, method, path
 	parentFK := intent.ParentTable + "_id"
 	scriptName := fmt.Sprintf("%s_by_%s", intent.ChildTable, intent.ParentTable)
 	scriptCode := fmt.Sprintf(`parent_id := request.param("id")
-results := db.query("SELECT * FROM %s WHERE %s = ?", [parent_id])
+results := db.query("SELECT * FROM %s WHERE %s = ? AND deleted_at IS NULL", [parent_id])
 response.json(results)`, intent.ChildTable, parentFK)
 
 	route := manifest.Route{
@@ -325,11 +325,11 @@ func generateCRUD(tableName, resourcePath, scriptPrefix string) ([]manifest.Rout
 	}
 
 	scripts := []manifest.Script{
-		{Name: "list_" + tableName, Code: fmt.Sprintf("result := db.query(\"SELECT * FROM %s\", [])\nresponse.json(result)", tableName)},
-		{Name: "get_" + singular, Code: fmt.Sprintf("id := request.param(\"id\")\nresult := db.query_one(\"SELECT * FROM %s WHERE id = ?\", [id])\nif result == undefined {\n  response.fail(404, \"%s not found\")\n} else {\n  response.json(result)\n}", tableName, singular)},
+		{Name: "list_" + tableName, Code: fmt.Sprintf("result := db.query(\"SELECT * FROM %s WHERE deleted_at IS NULL\", [])\nresponse.json(result)", tableName)},
+		{Name: "get_" + singular, Code: fmt.Sprintf("id := request.param(\"id\")\nresult := db.query_one(\"SELECT * FROM %s WHERE id = ? AND deleted_at IS NULL\", [id])\nif result == undefined {\n  response.fail(404, \"%s not found\")\n} else {\n  response.json(result)\n}", tableName, singular)},
 		{Name: "create_" + singular, Code: fmt.Sprintf("body := request.body()\nresult := db.insert(\"%s\", body)\nresponse.json(result, 201)", tableName)},
 		{Name: "update_" + singular, Code: fmt.Sprintf("id := request.param(\"id\")\nbody := request.body()\nresult := db.update(\"%s\", id, body)\nif result == undefined {\n  response.fail(404, \"%s not found\")\n} else {\n  response.json(result)\n}", tableName, singular)},
-		{Name: "delete_" + singular, Code: fmt.Sprintf("id := request.param(\"id\")\ndeleted := db.delete(\"%s\", id)\nif deleted {\n  response.json({\"deleted\": true})\n} else {\n  response.fail(404, \"%s not found\")\n}", tableName, singular)},
+		{Name: "delete_" + singular, Code: fmt.Sprintf("id := request.param(\"id\")\nexisting := db.query_one(\"SELECT id FROM %s WHERE id = ? AND deleted_at IS NULL\", [id])\nif existing == undefined {\n  response.fail(404, \"%s not found\")\n} else {\n  db.query(\"UPDATE %s SET deleted_at = date.now() WHERE id = ?\", [id])\n  response.json({\"deleted\": true})\n}", tableName, singular, tableName)},
 	}
 
 	return routes, scripts
@@ -350,18 +350,18 @@ func generateCustomRoute(method, path, tableName string, body map[string]any) (m
 	case "GET":
 		if strings.Contains(path, ":") {
 			// GET with ID param
-			scriptCode = fmt.Sprintf("id := request.param(\"id\")\nresult := db.query_one(\"SELECT * FROM %s WHERE id = ?\", [id])\nif result == undefined {\n  response.fail(404, \"not found\")\n} else {\n  response.json(result)\n}", tableName)
+			scriptCode = fmt.Sprintf("id := request.param(\"id\")\nresult := db.query_one(\"SELECT * FROM %s WHERE id = ? AND deleted_at IS NULL\", [id])\nif result == undefined {\n  response.fail(404, \"not found\")\n} else {\n  response.json(result)\n}", tableName)
 		} else {
-			scriptCode = fmt.Sprintf("result := db.query(\"SELECT * FROM %s\", [])\nresponse.json(result)", tableName)
+			scriptCode = fmt.Sprintf("result := db.query(\"SELECT * FROM %s WHERE deleted_at IS NULL\", [])\nresponse.json(result)", tableName)
 		}
 	case "POST":
 		scriptCode = fmt.Sprintf("body := request.body()\nresult := db.insert(\"%s\", body)\nresponse.json(result, 201)", tableName)
 	case "PUT", "PATCH":
 		scriptCode = fmt.Sprintf("id := request.param(\"id\")\nbody := request.body()\nresult := db.update(\"%s\", id, body)\nif result == undefined {\n  response.fail(404, \"not found\")\n} else {\n  response.json(result)\n}", tableName)
 	case "DELETE":
-		scriptCode = fmt.Sprintf("id := request.param(\"id\")\ndeleted := db.delete(\"%s\", id)\nif deleted {\n  response.json({\"deleted\": true})\n} else {\n  response.fail(404, \"not found\")\n}", tableName)
+		scriptCode = fmt.Sprintf("id := request.param(\"id\")\nexisting := db.query_one(\"SELECT id FROM %s WHERE id = ? AND deleted_at IS NULL\", [id])\nif existing == undefined {\n  response.fail(404, \"not found\")\n} else {\n  db.query(\"UPDATE %s SET deleted_at = date.now() WHERE id = ?\", [id])\n  response.json({\"deleted\": true})\n}", tableName, tableName)
 	default:
-		scriptCode = fmt.Sprintf("result := db.query(\"SELECT * FROM %s\", [])\nresponse.json(result)", tableName)
+		scriptCode = fmt.Sprintf("result := db.query(\"SELECT * FROM %s WHERE deleted_at IS NULL\", [])\nresponse.json(result)", tableName)
 	}
 
 	return manifest.Route{
