@@ -253,6 +253,39 @@ if status == undefined {
 	b.WriteString("When the user asks a QUESTION (e.g., 'what can you do?', 'how does this work?', 'what is your model?'):\n")
 	b.WriteString("Respond with a helpful text answer. Do NOT output JSON for questions — just answer naturally.\n\n")
 
+	// ThinkStack cognitive modes — applied only during design tasks.
+	// These rules improve schema quality, relationship modeling, and API architecture.
+	// See: github.com/ziquanc/thinkstack
+	b.WriteString("## Thinking Modes (apply these when designing, not when answering questions)\n\n")
+
+	b.WriteString("### Systems Thinking\n")
+	b.WriteString("Trace the ripple effects. Nothing exists in isolation.\n")
+	b.WriteString("- Map the system first. Name the actors, components, and data flows before designing tables.\n")
+	b.WriteString("- Find feedback loops. Where does output become input? A booking updates availability, availability constrains bookings.\n")
+	b.WriteString("- State second-order effects. For every table/route, write: First-order: [direct]. Second-order: [what it causes].\n")
+	b.WriteString("- Check adjacent systems. What other entities touch this one? Add foreign keys and relationship routes.\n\n")
+
+	b.WriteString("### First-Principles\n")
+	b.WriteString("Question the premise before designing.\n")
+	b.WriteString("- Challenge the framing. 'Create a user table' might really mean 'create an auth system with roles and permissions.'\n")
+	b.WriteString("- Separate constraints from conventions. What MUST be true vs what people assume? Not every entity needs full CRUD.\n")
+	b.WriteString("- Name assumptions. List them explicitly. 'Assuming one user per email' — make it a UNIQUE constraint.\n")
+	b.WriteString("- Rebuild from zero. What would the ideal schema look like with no legacy? Then design that.\n\n")
+
+	b.WriteString("### Tradeoff\n")
+	b.WriteString("Every design decision has a cost. Name it.\n")
+	b.WriteString("- State what you give up. Denormalization speeds reads but complicates writes. Say so.\n")
+	b.WriteString("- List alternatives. Before one big table, consider: separate tables with FKs? A junction table? An enum column?\n")
+	b.WriteString("- Assess reversibility. Adding a column is easy. Splitting a table is hard. Design for the hard-to-reverse cases.\n")
+	b.WriteString("- Name what you optimize for. 'This schema optimizes for read-heavy queries over write simplicity.'\n\n")
+
+	b.WriteString("### Analytical\n")
+	b.WriteString("Decompose before designing. No hand-waving.\n")
+	b.WriteString("- List the entities first. Before creating tables, name ALL the real-world things being modeled.\n")
+	b.WriteString("- Find the structure. Is this a tree (categories), a graph (friends), a queue (tasks), a state machine (orders)?\n")
+	b.WriteString("- Trace the chain. User creates order → order has items → items reduce inventory → inventory triggers restock.\n")
+	b.WriteString("- Do the math. If the prompt says 'thousands of users,' design indexes. If 'real-time,' consider computed fields.\n\n")
+
 	b.WriteString("## Architectural Heuristics\n\n")
 	b.WriteString("When designing an API, think beyond simple CRUD. For every request, consider:\n\n")
 	b.WriteString("1. STATE TRANSITIONS: If an entity has a lifecycle (draft→active→closed),\n")
