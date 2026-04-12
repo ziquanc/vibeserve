@@ -679,6 +679,9 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 	log.Printf("Server running at http://%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("Console at http://%s:%d/_console/", cfg.Server.Host, cfg.Server.Port)
 
+	// Clear terminal before starting TUI (prevents setup wizard text from mixing in)
+	fmt.Print("\033[H\033[2J")
+
 	// Create TUI
 	serverURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
 	rootModel := tui.NewRootModel(eng, bus, serverURL)
