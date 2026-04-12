@@ -429,9 +429,11 @@ function renderBlueprint(data) {
   const header = el('div', { cls: 'bp-header' });
   const titleRow = el('div', { cls: 'bp-title-row' });
   append(titleRow,
-    el('span', { cls: 'bp-title', text: m.name || 'Blueprint' }),
-    el('span', { cls: 'score-badge ' + scoreClass(score), text: 'Score ' + score + '/10' })
+    el('span', { cls: 'bp-title', text: m.name || 'Blueprint' })
   );
+  if (score > 0) {
+    titleRow.appendChild(el('span', { cls: 'score-badge ' + scoreClass(score), text: 'Score ' + score + '/10' }));
+  }
   header.appendChild(titleRow);
   if (m.description) {
     header.appendChild(el('div', { cls: 'bp-description', text: m.description }));

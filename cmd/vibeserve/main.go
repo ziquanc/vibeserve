@@ -682,6 +682,11 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 	serverURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
 	r := vibeserverepl.New(eng, bus, serverURL)
 
+	// Wire streaming callback for live progress
+	if openaiP, ok := provider.(*llm.OpenAIProvider); ok {
+		openaiP.OnChunk = r.OnChunk
+	}
+
 	if err := r.Run(); err != nil {
 		return fmt.Errorf("REPL error: %w", err)
 	}

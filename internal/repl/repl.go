@@ -7,7 +7,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
 	"github.com/vibeserve/vibeserve/internal/manifest"
@@ -15,15 +18,22 @@ import (
 
 // Colors (ANSI)
 const (
-	colorReset   = "\033[0m"
-	colorPurple  = "\033[35m"
-	colorGreen   = "\033[32m"
-	colorYellow  = "\033[33m"
-	colorRed     = "\033[31m"
-	colorCyan    = "\033[36m"
-	colorDim     = "\033[2m"
-	colorBold    = "\033[1m"
+	reset   = "\033[0m"
+	purple  = "\033[35m"
+	green   = "\033[32m"
+	yellow  = "\033[33m"
+	red     = "\033[31m"
+	cyan    = "\033[36m"
+	dim     = "\033[2m"
+	bold    = "\033[1m"
+	white   = "\033[37m"
+	bgDark  = "\033[48;5;236m"
 )
+
+var version = "0.2.0"
+
+// SetVersion allows main.go to set the version.
+func SetVersion(v string) { version = v }
 
 // REPL is the main interactive loop.
 type REPL struct {
@@ -34,6 +44,9 @@ type REPL struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 
+	// Streaming progress
+	streamingText atomic.Value // stores string
+
 	// State
 	pendingSeeds []manifest.Seed
 	seedPending  bool
@@ -42,7 +55,7 @@ type REPL struct {
 // New creates a REPL.
 func New(eng *engine.Engine, bus *engine.Bus, serverURL string) *REPL {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &REPL{
+	r := &REPL{
 		engine:    eng,
 		bus:       bus,
 		serverURL: serverURL,
@@ -50,18 +63,25 @@ func New(eng *engine.Engine, bus *engine.Bus, serverURL string) *REPL {
 		ctx:       ctx,
 		cancel:    cancel,
 	}
+	r.streamingText.Store("")
+	return r
+}
+
+// OnChunk is called by the LLM provider with streaming progress.
+// Wire this to provider.OnChunk in main.go.
+func (r *REPL) OnChunk(text string) {
+	r.streamingText.Store(text)
 }
 
 // Run starts the REPL. Blocks until the user quits.
 func (r *REPL) Run() error {
-	r.printWelcome()
+	r.printHeader()
 
 	for {
-		prompt := r.getPrompt()
-		fmt.Print(prompt)
+		r.printInputPrompt()
 
 		if !r.scanner.Scan() {
-			break // EOF or error
+			break
 		}
 
 		input := strings.TrimSpace(r.scanner.Text())
@@ -70,7 +90,7 @@ func (r *REPL) Run() error {
 		}
 
 		if r.handleInput(input) {
-			break // quit signal
+			break
 		}
 	}
 
@@ -78,18 +98,13 @@ func (r *REPL) Run() error {
 	return nil
 }
 
-func (r *REPL) getPrompt() string {
-	if r.seedPending {
-		return colorYellow + "seed> " + colorReset
-	}
-	if r.engine.HasPendingBlueprint() {
-		return colorCyan + "blueprint> " + colorReset
-	}
-	return colorPurple + "vibe> " + colorReset
-}
-
 // handleInput processes user input. Returns true if should quit.
 func (r *REPL) handleInput(input string) bool {
+	// Slash commands — always available
+	if strings.HasPrefix(input, "/") {
+		return r.handleCommand(input)
+	}
+
 	// Seed confirmation
 	if r.seedPending {
 		r.seedPending = false
@@ -97,62 +112,60 @@ func (r *REPL) handleInput(input string) bool {
 		if lower == "y" || lower == "yes" {
 			r.applySeedsWithProgress()
 		} else {
-			r.printSystem("Skipped seeding.")
+			r.printInfo("Skipped seeding.")
 		}
 		r.printURLs()
 		return false
 	}
 
-	// Blueprint approval
+	// Blueprint pending — user can approve, reject, or refine
 	if r.engine.HasPendingBlueprint() {
-		return r.handleBlueprintInput(input)
+		lower := strings.ToLower(input)
+		switch {
+		case lower == "y" || lower == "yes" || lower == "approve":
+			r.approveBlueprint()
+		case lower == "n" || lower == "no" || lower == "cancel":
+			r.engine.CancelBlueprint()
+			r.printInfo("Blueprint cancelled.")
+		case lower == "enhance":
+			r.refineBlueprint("The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules.")
+		default:
+			// Treat as refinement feedback
+			r.refineBlueprint(input)
+		}
+		return false
 	}
 
-	// Slash commands
-	lower := strings.ToLower(input)
-	switch {
-	case lower == "/quit" || lower == "/exit":
-		fmt.Println("\nBye!")
-		return true
-	case lower == "/help":
-		r.printHelp()
-		return false
-	case lower == "/routes":
-		r.printRoutes()
-		return false
-	case lower == "/status":
-		r.printStatus()
-		return false
-	case lower == "/undo":
-		r.handleUndo()
-		return false
-	default:
-		r.handlePrompt(input)
-		return false
-	}
+	// Regular prompt — send to AI
+	r.handlePrompt(input)
+	return false
 }
 
-func (r *REPL) handleBlueprintInput(input string) bool {
+func (r *REPL) handleCommand(input string) bool {
 	lower := strings.ToLower(input)
 	switch {
-	case lower == "y" || lower == "yes":
-		r.approveBlueprint()
-	case lower == "n" || lower == "no" || lower == "/cancel":
-		r.engine.CancelBlueprint()
-		r.printSystem("Blueprint cancelled.")
-	case lower == "enhance":
-		r.refineBlueprint("The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules.")
+	case lower == "/quit" || lower == "/exit" || lower == "/q":
+		fmt.Println("\nBye!")
+		return true
+	case lower == "/help" || lower == "/":
+		r.printHelp()
+	case lower == "/routes":
+		r.printRoutes()
+	case lower == "/status":
+		r.printStatus()
+	case lower == "/undo":
+		r.handleUndo()
 	default:
-		r.refineBlueprint(input)
+		fmt.Printf("  %sUnknown command: %s. Type /help for available commands.%s\n", dim, input, reset)
 	}
 	return false
 }
 
 func (r *REPL) handlePrompt(input string) {
-	r.printThinking("Thinking...")
+	done := r.startProgress("Thinking")
 
 	result, err := r.engine.Apply(r.ctx, input)
-	r.clearLine()
+	done()
 
 	if err != nil {
 		r.printError(err.Error())
@@ -170,10 +183,10 @@ func (r *REPL) handlePrompt(input string) {
 }
 
 func (r *REPL) approveBlueprint() {
-	r.printThinking("Generating full API...")
+	done := r.startProgress("Generating API")
 
 	result, err := r.engine.ApproveBlueprint(r.ctx)
-	r.clearLine()
+	done()
 
 	if err != nil {
 		r.printError(err.Error())
@@ -190,17 +203,17 @@ func (r *REPL) approveBlueprint() {
 		for _, s := range result.PendingSeeds {
 			totalRows += len(s.Rows)
 		}
-		fmt.Printf("\n%sSeed sample data? %d tables, %d rows [y/N]%s\n", colorYellow, len(result.PendingSeeds), totalRows, colorReset)
+		fmt.Printf("\n  %sSeed sample data? %d tables, %d rows [y/N]%s\n", yellow, len(result.PendingSeeds), totalRows, reset)
 	} else {
 		r.printURLs()
 	}
 }
 
 func (r *REPL) refineBlueprint(feedback string) {
-	r.printThinking("Refining blueprint...")
+	done := r.startProgress("Refining")
 
 	_, err := r.engine.RefineBlueprint(r.ctx, feedback)
-	r.clearLine()
+	done()
 
 	if err != nil {
 		r.printError(err.Error())
@@ -218,72 +231,133 @@ func (r *REPL) handleUndo() {
 	if err != nil {
 		r.printError(fmt.Sprintf("Undo failed: %v", err))
 	} else {
-		r.printSystem("Undo successful. Last change rolled back.")
+		r.printInfo("Undo successful. Last change rolled back.")
 	}
 }
 
 func (r *REPL) applySeedsWithProgress() {
 	for _, seed := range r.pendingSeeds {
-		fmt.Printf("  %s✓%s Seeding %s (%d rows)\n", colorGreen, colorReset, seed.Table, len(seed.Rows))
+		fmt.Printf("  %s✓%s Seeding %s (%d rows)\n", green, reset, seed.Table, len(seed.Rows))
 		r.engine.ApplySeeds([]manifest.Seed{seed})
 	}
 	r.pendingSeeds = nil
-	r.printSystem("Data seeded.")
+	r.printInfo("Data seeded.")
+}
+
+// startProgress shows an animated progress indicator with streaming text.
+// Returns a function to call when done.
+func (r *REPL) startProgress(label string) func() {
+	r.streamingText.Store("")
+	stopCh := make(chan struct{})
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				streamText := r.streamingText.Load().(string)
+				status := label
+				if streamText != "" {
+					status = streamText
+				}
+				fmt.Printf("\r  %s%s %s%s", purple, frames[i%len(frames)], status, reset)
+				// Clear rest of line
+				fmt.Print("\033[K")
+				i++
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+
+	return func() {
+		close(stopCh)
+		fmt.Print("\r\033[K") // Clear the progress line
+	}
 }
 
 // --- Printing helpers ---
 
-func (r *REPL) printWelcome() {
-	fmt.Printf("\n%s%sVibeServe%s  %s\n\n", colorBold, colorPurple, colorReset, r.serverURL)
-	fmt.Printf("  %sType a prompt to create an API. /help for commands.%s\n\n", colorDim, colorReset)
+func (r *REPL) printHeader() {
+	cwd, _ := os.Getwd()
+	cwd = filepath.Base(cwd)
+
+	m := r.engine.Manifest()
+	apiName := ""
+	tableCount := 0
+	routeCount := 0
+	if m != nil {
+		apiName = m.Name
+		tableCount = len(m.Schemas)
+		routeCount = len(m.Routes)
+	}
+
+	fmt.Println()
+	fmt.Printf("  %s%s╭─────────────────────────────────────────────────────────────╮%s\n", bold, purple, reset)
+	fmt.Printf("  %s%s│%s  %s%sVibeServe%s %-49s %s%s│%s\n", bold, purple, reset, bold, white, reset, "v"+version, bold, purple, reset)
+	fmt.Printf("  %s%s├─────────────────────────────────────────────────────────────┤%s\n", bold, purple, reset)
+	fmt.Printf("  %s%s│%s  %sPath:%s      %-47s %s%s│%s\n", bold, purple, reset, dim, reset, cwd, bold, purple, reset)
+	fmt.Printf("  %s%s│%s  %sServer:%s    %-47s %s%s│%s\n", bold, purple, reset, dim, reset, r.serverURL, bold, purple, reset)
+	if apiName != "" {
+		info := fmt.Sprintf("%s (%d tables, %d routes)", apiName, tableCount, routeCount)
+		fmt.Printf("  %s%s│%s  %sAPI:%s       %-47s %s%s│%s\n", bold, purple, reset, dim, reset, info, bold, purple, reset)
+	}
+	fmt.Printf("  %s%s│%s  %sConsole:%s   %-47s %s%s│%s\n", bold, purple, reset, dim, reset, r.serverURL+"/_console", bold, purple, reset)
+	fmt.Printf("  %s%s╰─────────────────────────────────────────────────────────────╯%s\n", bold, purple, reset)
+	fmt.Println()
+	fmt.Printf("  %sType a prompt to create an API, or / to see commands.%s\n\n", dim, reset)
+}
+
+func (r *REPL) printInputPrompt() {
+	fmt.Printf("  %s───────────────────────────────────────────%s\n", dim, reset)
+	fmt.Printf("  %svibe>%s ", purple, reset)
 }
 
 func (r *REPL) printBlueprint(bp *engine.BlueprintInfo) {
+	fmt.Println()
+
 	// Steps
 	if len(bp.Steps) > 0 {
-		fmt.Printf("\n%s%sBlueprint plan: %d steps%s", colorBold, colorCyan, len(bp.Steps), colorReset)
-		if bp.Heuristics.Score > 0 {
-			fmt.Printf("  %s(score: %d/10)%s", colorDim, bp.Heuristics.Score, colorReset)
-		}
-		fmt.Println()
-		fmt.Println()
+		fmt.Printf("  %s%sBlueprint — %d steps%s\n\n", bold, cyan, len(bp.Steps), reset)
 		for i, step := range bp.Steps {
-			fmt.Printf("  %s%d.%s %s\n", colorCyan, i+1, colorReset, step)
+			fmt.Printf("  %s%d.%s %s\n", cyan, i+1, reset, step)
 		}
 	} else {
-		fmt.Printf("\n%s%sBlueprint ready%s", colorBold, colorCyan, colorReset)
-		if bp.Heuristics.Score > 0 {
-			fmt.Printf("  %s(score: %d/10)%s", colorDim, bp.Heuristics.Score, colorReset)
-		}
-		fmt.Println()
+		fmt.Printf("  %s%sBlueprint ready%s\n", bold, cyan, reset)
 	}
 
 	// Stats
-	if bp.Manifest != nil {
-		fmt.Printf("\n  %d tables, %d routes, %d scripts\n",
-			len(bp.Manifest.Schemas), len(bp.Manifest.Routes), len(bp.Manifest.Scripts))
+	if bp.Manifest != nil && (len(bp.Manifest.Schemas) > 0 || len(bp.Manifest.Routes) > 0) {
+		fmt.Printf("\n  %d tables", len(bp.Manifest.Schemas))
+		if len(bp.Manifest.Routes) > 0 {
+			fmt.Printf(", %d routes", len(bp.Manifest.Routes))
+		}
+		if len(bp.Manifest.Scripts) > 0 {
+			fmt.Printf(", %d scripts", len(bp.Manifest.Scripts))
+		}
+		fmt.Println()
 	}
 
 	// Warnings
 	for _, w := range bp.Warnings {
-		fmt.Printf("  %s⚠ %s%s\n", colorYellow, w, colorReset)
+		fmt.Printf("  %s⚠ %s%s\n", yellow, w, reset)
 	}
 
 	// Hints
-	for _, h := range bp.Heuristics.Hints {
-		fmt.Printf("  %s✦ %s%s\n", colorPurple, h, colorReset)
+	if len(bp.Heuristics.Hints) > 0 {
+		fmt.Println()
+		for _, h := range bp.Heuristics.Hints {
+			fmt.Printf("  %s✦ %s%s\n", purple, h, reset)
+		}
 	}
 
-	// Suggestions
-	for _, s := range bp.Heuristics.Suggestions {
-		fmt.Printf("  %s⚠ %s%s\n", colorYellow, s, colorReset)
-	}
+	// ER Diagram link
+	fmt.Printf("\n  %sER Diagram:%s  %s/_blueprint\n", dim, reset, r.serverURL)
 
-	// URLs
-	fmt.Printf("\n  %sER Diagram:%s  %s/_blueprint\n", colorDim, colorReset, r.serverURL)
-
-	// Approval prompt
-	fmt.Printf("\n  %s[y] approve  |  type feedback to refine  |  [n] cancel%s\n\n", colorDim, colorReset)
+	// Approval
+	fmt.Printf("\n  %s[y] approve  |  type feedback to refine  |  [n] cancel%s\n", dim, reset)
 }
 
 func (r *REPL) printApplyResult(result *engine.ApplyResult) {
@@ -291,7 +365,6 @@ func (r *REPL) printApplyResult(result *engine.ApplyResult) {
 		return
 	}
 
-	// Count changes by type
 	tables, routes, scripts := 0, 0, 0
 	for _, c := range result.Changes {
 		switch {
@@ -304,27 +377,30 @@ func (r *REPL) printApplyResult(result *engine.ApplyResult) {
 		}
 	}
 
-	fmt.Printf("\n%s✓ Applied:%s", colorGreen, colorReset)
+	fmt.Println()
+	fmt.Printf("  %s✓ Applied:%s", green, reset)
+	parts := []string{}
 	if tables > 0 {
-		fmt.Printf(" %d schema changes", tables)
+		parts = append(parts, fmt.Sprintf("%d schema changes", tables))
 	}
 	if routes > 0 {
-		fmt.Printf(", %d routes", routes)
+		parts = append(parts, fmt.Sprintf("%d routes", routes))
 	}
 	if scripts > 0 {
-		fmt.Printf(", %d scripts", scripts)
+		parts = append(parts, fmt.Sprintf("%d scripts", scripts))
 	}
-	fmt.Println()
+	fmt.Printf(" %s\n", strings.Join(parts, ", "))
 
 	for _, w := range result.Warnings {
-		fmt.Printf("  %s⚠ %s%s\n", colorYellow, w, colorReset)
+		fmt.Printf("  %s⚠ %s%s\n", yellow, w, reset)
 	}
 }
 
 func (r *REPL) printURLs() {
-	fmt.Printf("\n  %sConsole:%s    %s/_console\n", colorDim, colorReset, r.serverURL)
-	fmt.Printf("  %sSwagger:%s    %s/_swagger\n", colorDim, colorReset, r.serverURL)
-	fmt.Printf("  %sBlueprint:%s  %s/_blueprint\n\n", colorDim, colorReset, r.serverURL)
+	fmt.Println()
+	fmt.Printf("  %sConsole:%s    %s/_console\n", dim, reset, r.serverURL)
+	fmt.Printf("  %sSwagger:%s    %s/_swagger\n", dim, reset, r.serverURL)
+	fmt.Printf("  %sBlueprint:%s  %s/_blueprint\n\n", dim, reset, r.serverURL)
 }
 
 func (r *REPL) printRoutes() {
@@ -337,7 +413,7 @@ func (r *REPL) printRoutes() {
 	for _, route := range m.Routes {
 		fmt.Printf("  %-8s %s", route.Method, route.Path)
 		if route.Description != "" {
-			fmt.Printf("  %s— %s%s", colorDim, route.Description, colorReset)
+			fmt.Printf("  %s— %s%s", dim, route.Description, reset)
 		}
 		fmt.Println()
 	}
@@ -350,7 +426,7 @@ func (r *REPL) printStatus() {
 		fmt.Println("  No API created yet.")
 		return
 	}
-	fmt.Printf("\n  %s%s%s v%s\n", colorBold, m.Name, colorReset, m.Version)
+	fmt.Printf("\n  %s%s%s v%s\n", bold, m.Name, reset, m.Version)
 	if m.Description != "" {
 		fmt.Printf("  %s\n", m.Description)
 	}
@@ -360,31 +436,24 @@ func (r *REPL) printStatus() {
 
 func (r *REPL) printHelp() {
 	fmt.Println()
-	fmt.Printf("  %s/routes%s    List all API routes\n", colorCyan, colorReset)
-	fmt.Printf("  %s/status%s    Show project status\n", colorCyan, colorReset)
-	fmt.Printf("  %s/undo%s      Rollback last change\n", colorCyan, colorReset)
-	fmt.Printf("  %s/help%s      Show this help\n", colorCyan, colorReset)
-	fmt.Printf("  %s/quit%s      Exit VibeServe\n", colorCyan, colorReset)
+	fmt.Printf("  %s%sCommands%s\n\n", bold, cyan, reset)
+	fmt.Printf("  %s/routes%s    List all API routes\n", cyan, reset)
+	fmt.Printf("  %s/status%s    Show project status\n", cyan, reset)
+	fmt.Printf("  %s/undo%s      Rollback last change\n", cyan, reset)
+	fmt.Printf("  %s/help%s      Show this help\n", cyan, reset)
+	fmt.Printf("  %s/quit%s      Exit VibeServe\n", cyan, reset)
 	fmt.Println()
-	fmt.Printf("  %sAnything else is sent to the AI to create/modify your API.%s\n\n", colorDim, colorReset)
+	fmt.Printf("  %sAnything else is sent to the AI to create/modify your API.%s\n\n", dim, reset)
 }
 
 func (r *REPL) printAssistant(msg string) {
-	fmt.Printf("\n%sVibeServe:%s %s\n\n", colorPurple, colorReset, msg)
+	fmt.Printf("\n  %sVibeServe:%s %s\n\n", purple, reset, msg)
 }
 
-func (r *REPL) printSystem(msg string) {
-	fmt.Printf("  %s✓ %s%s\n", colorGreen, msg, colorReset)
+func (r *REPL) printInfo(msg string) {
+	fmt.Printf("  %s✓ %s%s\n", green, msg, reset)
 }
 
 func (r *REPL) printError(msg string) {
-	fmt.Printf("  %s✗ %s%s\n", colorRed, msg, colorReset)
-}
-
-func (r *REPL) printThinking(msg string) {
-	fmt.Printf("  %s%s%s", colorDim, msg, colorReset)
-}
-
-func (r *REPL) clearLine() {
-	fmt.Print("\r\033[K")
+	fmt.Printf("  %s✗ %s%s\n", red, msg, reset)
 }
