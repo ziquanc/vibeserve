@@ -151,75 +151,28 @@ func (pe *ProxyEngine) smartGenerate(ctx context.Context, method, path string, b
 	}
 }
 
-// handleCreateTable deterministically creates a new table + CRUD routes.
-// No AI needed — everything comes from the intent analysis.
+// handleCreateTable uses the LLM to design a proper table with appropriate
+// columns, types, constraints, and foreign keys to existing tables.
+// The LLM sees the full current schema context and designs a well-structured table.
 func (pe *ProxyEngine) handleCreateTable(ctx context.Context, method, path string, body map[string]any, intent *Intent) (int, map[string]any, map[string]string, error) {
 	tableName := intent.TableName
-	log.Printf("[proxy] Creating table %s with %d columns", tableName, len(intent.Columns))
+	log.Printf("[proxy] Creating table %s via LLM", tableName)
 
-	// Build the new manifest by extending the current one
-	currentManifest := pe.engine.Manifest()
-	newManifest := copyManifest(currentManifest)
+	// Build a context-aware prompt for the LLM
+	analyzer := NewIntentAnalyzer(pe.engine.Manifest())
+	prompt := analyzer.BuildSmartPrompt(method, path, body, nil)
 
-	// Add the new schema
-	newManifest.Schemas = append(newManifest.Schemas, manifest.Schema{
-		Table:   tableName,
-		Columns: intent.Columns,
-	})
-
-	// Generate CRUD routes and scripts for the new table
-	resourcePath := "/" + tableName
-	singular := singularize(tableName)
-	scriptPrefix := singular
-
-	routes, scripts := generateCRUD(tableName, resourcePath, scriptPrefix)
-	newManifest.Routes = append(newManifest.Routes, routes...)
-	newManifest.Scripts = append(newManifest.Scripts, scripts...)
-
-	// Also add the custom route that triggered this (if different from CRUD)
-	if intent.ParentTable != "" {
-		// Relationship path — generate a filtered query route
-		fkCol := singularize(intent.ParentTable) + "_id"
-		scriptName := fmt.Sprintf("%s_by_%s", intent.TableName, singularize(intent.ParentTable))
-		scriptCode := fmt.Sprintf("parent_id := request.param(\"id\")\nresults := db.query(\"SELECT * FROM %s WHERE %s = ? AND deleted_at IS NULL\", [parent_id])\nresponse.json(results)", intent.TableName, fkCol)
-
-		customRoute := manifest.Route{
-			Path:         path,
-			Method:       method,
-			Description:  fmt.Sprintf("Get %s for a specific %s", intent.TableName, singularize(intent.ParentTable)),
-			Script:       scriptName,
-			ResponseType: "array",
-		}
-		customScript := manifest.Script{
-			Name: scriptName,
-			Code: scriptCode,
-		}
-
-		if !routeExists(newManifest.Routes, method, path) {
-			newManifest.Routes = append(newManifest.Routes, customRoute)
-			newManifest.Scripts = append(newManifest.Scripts, customScript)
-		}
-	} else {
-		// Regular custom route
-		customRoute, customScript := generateCustomRoute(method, path, tableName, body)
-		if !routeExists(newManifest.Routes, method, path) {
-			newManifest.Routes = append(newManifest.Routes, customRoute)
-			newManifest.Scripts = append(newManifest.Scripts, customScript)
-		}
-	}
-
-	// Apply
-	prompt := fmt.Sprintf("Auto-create table %s from %s %s", tableName, method, path)
-	result, err := pe.engine.ApplyManifestDirect(ctx, prompt, newManifest)
+	// Let the LLM design the complete schema + routes
+	result, err := pe.engine.ApplyAutoApprove(ctx, prompt)
 	if err != nil {
-		log.Printf("[proxy] Failed to create table %s: %v", tableName, err)
+		log.Printf("[proxy] LLM table creation failed: %v", err)
 		return 500, map[string]any{
 			"error":  "failed to create table",
 			"detail": err.Error(),
 		}, nil, nil
 	}
 
-	log.Printf("[proxy] Created table %s (%d changes)", tableName, len(result.Changes))
+	log.Printf("[proxy] Created table %s via LLM (%d changes)", tableName, len(result.Changes))
 	return retryResponse()
 }
 
@@ -249,29 +202,15 @@ func (pe *ProxyEngine) handleAddRoute(ctx context.Context, method, path string, 
 	return retryResponse()
 }
 
-// handleAddColumn adds new columns to an existing table, then adds the route.
+// handleAddColumn uses the LLM to add new columns with proper types and constraints.
 func (pe *ProxyEngine) handleAddColumn(ctx context.Context, method, path string, body map[string]any, intent *Intent) (int, map[string]any, map[string]string, error) {
 	tableName := intent.TargetTable
-	log.Printf("[proxy] Adding %d columns to table %s", len(intent.ColumnsToAdd), tableName)
+	log.Printf("[proxy] Adding columns to table %s via LLM", tableName)
 
-	currentManifest := pe.engine.Manifest()
-	newManifest := copyManifest(currentManifest)
+	analyzer := NewIntentAnalyzer(pe.engine.Manifest())
+	prompt := analyzer.BuildSmartPrompt(method, path, body, nil)
 
-	// Add columns to the existing schema
-	for i := range newManifest.Schemas {
-		if strings.EqualFold(newManifest.Schemas[i].Table, tableName) {
-			newManifest.Schemas[i].Columns = append(newManifest.Schemas[i].Columns, intent.ColumnsToAdd...)
-			break
-		}
-	}
-
-	// Add the custom route
-	route, script := generateCustomRoute(method, path, tableName, body)
-	newManifest.Routes = append(newManifest.Routes, route)
-	newManifest.Scripts = append(newManifest.Scripts, script)
-
-	prompt := fmt.Sprintf("Add columns to %s from %s %s", tableName, method, path)
-	result, err := pe.engine.ApplyManifestDirect(ctx, prompt, newManifest)
+	result, err := pe.engine.ApplyAutoApprove(ctx, prompt)
 	if err != nil {
 		return 500, map[string]any{
 			"error":  "failed to add columns",
@@ -279,7 +218,7 @@ func (pe *ProxyEngine) handleAddColumn(ctx context.Context, method, path string,
 		}, nil, nil
 	}
 
-	log.Printf("[proxy] Added columns to %s (%d changes)", tableName, len(result.Changes))
+	log.Printf("[proxy] Added columns to %s via LLM (%d changes)", tableName, len(result.Changes))
 	return retryResponse()
 }
 

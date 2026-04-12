@@ -662,7 +662,17 @@ function renderERDiagram(schemas) {
   var mermaidDiv = el('div', { cls: 'mermaid' });
   mermaidDiv.textContent = code;
   wrap.appendChild(mermaidDiv);
-  wrap.appendChild(el('div', { cls: 'er-hint', text: 'Click a table name to highlight related routes below.' }));
+
+  var btnRow = el('div', { style: 'display:flex;gap:12px;margin-top:12px;align-items:center' });
+  var fullBtn = el('button', {
+    text: 'Open fullscreen',
+    style: 'padding:6px 16px;background:var(--primary);color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px'
+  });
+  fullBtn.addEventListener('click', function() { window.open('/_blueprint/diagram', '_blank'); });
+  btnRow.appendChild(fullBtn);
+  btnRow.appendChild(el('span', { cls: 'er-hint', text: 'Click a table name to highlight related routes below.' }));
+  wrap.appendChild(btnRow);
+
   sec.appendChild(wrap);
   return sec;
 }
