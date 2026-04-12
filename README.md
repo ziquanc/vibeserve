@@ -23,9 +23,9 @@ VibeServe is a single-binary CLI that turns natural language into a running API 
  Describe                    Prototype                    Ship
  ───────                    ─────────                    ────
  "Create a task API    ──>   API running at          ──>  vibeserve export
-  with users and             localhost:8080                --format express
-  projects"                  Swagger at /_swagger          --db postgres
-                             Console at /_console          --typescript
+  with users and             localhost:8080                --format express | next
+  projects"                  ER diagram at /_blueprint     --db postgres
+                             Swagger at /_swagger          --typescript
 ```
 
 ## Quick Start
@@ -55,22 +55,36 @@ curl -X POST http://localhost:8080/tasks \
 
 ### 1. Conversational Mode (default)
 
-Describe what you want. VibeServe proposes a blueprint, you approve or refine, and it builds.
+Describe what you want. VibeServe proposes a blueprint with an ER diagram, you review and approve or refine with natural language, and it builds.
 
 ```
 vibe> Create a task management API with users, projects, and tasks.
 
-VibeServe: Blueprint plan: 4 steps
-  1. Create users table with id, name, email, role
-  2. Create projects table with id, name, owner_id
-  3. Create tasks table with id, project_id, assignee_id, title, priority, due_date, status
-  4. Add routes: CRUD for all, plus POST /tasks/:id/assign
+  Blueprint — 4 steps
+
+  1. Create tables: users (id, name, email, role), projects (id, name, owner_id FK),
+     tasks (id, project_id FK, assignee_id FK, title, priority, due_date, status)
+  2. Add CRUD routes + POST /tasks/:id/assign
+  3. Add analytics: GET /projects/:id/stats, GET /users/:id/workload
+  4. Seed sample data
+
+  ER Diagram:  http://localhost:8080/_blueprint
 
   [y] approve  |  type feedback to refine  |  [n] cancel
 
-blueprint> y
-VibeServe: Done! Schema: +3 tables, Routes: +12, Scripts: +12
+vibe> y
+
+  ✓ Applied: 3 schema changes, 15 routes, 15 scripts
+
+  Seed sample data? 3 tables, 12 rows [y/N]
+
+vibe> y
+  ✓ Seeding users (3 rows)
+  ✓ Seeding projects (2 rows)
+  ✓ Seeding tasks (7 rows)
 ```
+
+Type natural language to refine: "add a comments feature" or "rename status to state". Type `y` to approve.
 
 ### 2. Proxy Mode — API builds itself from HTTP requests
 
@@ -94,7 +108,9 @@ curl -X POST http://localhost:8080/owners \
   -d '{"name":"Kent","pet_id":1}'
 ```
 
-Smart features: foreign key detection, relationship routes, soft delete, rate limiting (30 gen/min).
+The proxy uses the LLM to design proper schemas with correct types, constraints, and foreign keys — not just guessing from body fields.
+
+Smart features: FK detection, relationship routes, soft delete, entity vs action detection, rate limiting (30 gen/min).
 
 ### 3. MCP Server — let AI coding assistants drive
 
@@ -138,9 +154,9 @@ Graduate from prototype to production-ready code:
 vibeserve export [flags] [output-dir]
 
 Flags:
-  --format    go | express       (default: go)
-  --db        sqlite | postgres  (default: sqlite)
-  --typescript                   Generate TypeScript interfaces
+  --format    go | express | next  (default: go)
+  --db        sqlite | postgres    (default: sqlite)
+  --typescript                     Generate TypeScript interfaces
 ```
 
 ### Go
@@ -200,6 +216,25 @@ export interface UpdateUserInput {
 }
 ```
 
+### Next.js Admin Panel
+
+```bash
+vibeserve export --format next ./my-frontend
+cd my-frontend && npm install && npm run dev
+```
+
+Generates a full Next.js 15 admin panel with shadcn/ui:
+
+- Dashboard with resource cards
+- Per-table CRUD pages: data table, create form, detail view, edit form
+- Typed API client (`lib/api.ts`) with all CRUD functions
+- TypeScript interfaces (`lib/types.ts`)
+- Sidebar navigation with lucide-react icons
+- Search, sort, pagination on all list pages
+- Tailwind CSS v4 + shadcn/ui components
+
+The frontend proxies `/api/*` to your VibeServe server — works in dev, configurable for production via `API_URL`.
+
 ### What's included in every export
 
 | Feature | Description |
@@ -207,6 +242,7 @@ export interface UpdateUserInput {
 | Soft delete | `created_at`, `updated_at`, `deleted_at` on every table |
 | Pagination | `LIMIT`/`OFFSET` with configurable defaults |
 | Search & filtering | `?sort=name&order=desc&search=term&status=active` |
+| FK auto-inference | `user_id` columns auto-linked to `users` table on export |
 | Input validation | Type-aware validation on all routes |
 | Error handling | try/catch with Express error middleware |
 | Security | helmet, CORS, JWT, rate limiting, bcrypt |
@@ -222,7 +258,7 @@ Once the server is running:
 | URL | What |
 |-----|------|
 | `localhost:8080/_console` | Browse tables, routes, scripts, HTTP traces |
-| `localhost:8080/_blueprint` | ER diagram with interactive table highlighting |
+| `localhost:8080/_blueprint` | ER diagram with fullscreen view and interactive highlighting |
 | `localhost:8080/_swagger` | Swagger UI — live API docs |
 
 ### API Testing

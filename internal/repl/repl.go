@@ -30,7 +30,7 @@ const (
 	bgDark = "\033[48;5;236m"
 )
 
-var version = "0.2.0"
+var version = "0.3.0"
 
 // SetVersion allows main.go to set the version.
 func SetVersion(v string) { version = v }
