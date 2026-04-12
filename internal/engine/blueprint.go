@@ -24,6 +24,7 @@ type BlueprintInfo struct {
 	Warnings   []string
 	Summary    string
 	Heuristics HeuristicResult
+	Diagram    string // Mermaid ER diagram
 
 	// Plan-mode fields: when the LLM returns a multi-step plan,
 	// the blueprint stores the steps and defers execution until approval.
@@ -103,6 +104,7 @@ func (e *Engine) proposeBlueprint(newManifest *manifest.Manifest) (*BlueprintInf
 		Warnings:   warnings,
 		Summary:    summary,
 		Heuristics: heuristics,
+		Diagram:    manifest.GenerateMermaidER(newManifest.Schemas),
 	}
 
 	e.pendingBlueprint = bp
@@ -190,6 +192,7 @@ func (e *Engine) executePlanSteps(ctx context.Context, steps []string, prompt st
 		finalManifest = stepResult.Manifest
 		result.Changes = append(result.Changes, stepResult.Changes...)
 		result.Warnings = append(result.Warnings, stepResult.Warnings...)
+		result.PendingSeeds = append(result.PendingSeeds, stepResult.PendingSeeds...)
 		result.Manifest = stepResult.Manifest
 
 		var changeSummaries []string
@@ -460,6 +463,11 @@ func FormatBlueprintSummary(bp *BlueprintInfo) string {
 	if bp.Manifest != nil {
 		b.WriteString(fmt.Sprintf("  %d tables, %d routes, %d scripts\n",
 			len(bp.Manifest.Schemas), len(bp.Manifest.Routes), len(bp.Manifest.Scripts)))
+	}
+
+	if bp.Diagram != "" {
+		b.WriteString("\n")
+		b.WriteString(bp.Diagram)
 	}
 
 	if len(bp.Warnings) > 0 {

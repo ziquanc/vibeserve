@@ -63,7 +63,8 @@ type ApplyResult struct {
 	Changes      []manifest.Change
 	Warnings     []string
 	Manifest     *manifest.Manifest
-	ChatResponse string // non-empty when LLM responded conversationally (no manifest changes)
+	ChatResponse string          // non-empty when LLM responded conversationally (no manifest changes)
+	PendingSeeds []manifest.Seed // seeds awaiting user confirmation
 }
 
 // Manifest returns the current manifest.
@@ -305,14 +306,10 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 		}
 	}
 
-	// 8. Seed new tables
+	// 8. Collect seed changes (applied separately after user confirmation).
 	for _, c := range changes {
 		if c.Type == manifest.ChangeAddSeed {
-			if err := e.store.Seed(c.Seed.Table, c.Seed.Rows); err != nil {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("seed %s failed: %v", c.Seed.Table, err))
-			} else {
-				e.bus.Publish(Event{Type: EventDataSeeded, Data: c.Seed.Table})
-			}
+			result.PendingSeeds = append(result.PendingSeeds, *c.Seed)
 		}
 	}
 
@@ -417,6 +414,22 @@ func (e *Engine) ApplyAutoApprove(ctx context.Context, prompt string) (*ApplyRes
 		return e.ApproveBlueprint(ctx)
 	}
 	return nil, fmt.Errorf("unexpected empty result")
+}
+
+// ApplySeeds inserts seed data into the database. Each table is seeded
+// independently; failures are logged and skipped so one bad seed does not
+// block the rest.
+func (e *Engine) ApplySeeds(seeds []manifest.Seed) error {
+	for _, seed := range seeds {
+		if err := e.store.Seed(seed.Table, seed.Rows); err != nil {
+			log.Printf("[engine] seed %s: %v (skipping)", seed.Table, err)
+			continue
+		}
+		if e.bus != nil {
+			e.bus.Publish(Event{Type: EventDataSeeded, Data: seed.Table})
+		}
+	}
+	return nil
 }
 
 // repairManifest fills in common fields that LLMs often omit.

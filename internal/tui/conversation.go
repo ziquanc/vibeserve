@@ -18,6 +18,7 @@ type ConversationModel struct {
 	focused         bool
 	scrollOffset    int
 	proposalPending bool
+	seedPending     bool
 
 	// Input history (up/down arrow navigation)
 	history      []string
@@ -76,6 +77,7 @@ func (m *ConversationModel) RemoveLastEphemeral() {
 				strings.HasPrefix(content, "Refining") ||
 				strings.HasPrefix(content, "Enhancing") ||
 				strings.HasPrefix(content, "Applying") ||
+				strings.HasPrefix(content, "Seeding") ||
 				strings.HasPrefix(content, "Undoing") ||
 				strings.HasPrefix(content, "Queued") {
 				m.messages = append(m.messages[:i], m.messages[i+1:]...)
@@ -159,6 +161,16 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 				m.AddMessage(Message{Role: RoleUser, Content: trimmed})
 				m.AddMessage(Message{Role: RoleSystem, Content: "Queued — waiting for current request to finish..."})
 				return m, nil
+			}
+
+			// Seed confirmation
+			if m.seedPending {
+				lower := strings.TrimSpace(strings.ToLower(trimmed))
+				m.seedPending = false
+				if lower == "y" || lower == "yes" {
+					return m, func() tea.Msg { return SeedApproveMsg{} }
+				}
+				return m, func() tea.Msg { return SeedDeclineMsg{} }
 			}
 
 			// Handle slash commands
@@ -390,7 +402,9 @@ func (m ConversationModel) renderMessages(height int) string {
 // renderInput renders the input field with a prompt indicator.
 func (m ConversationModel) renderInput() string {
 	promptText := "vibe> "
-	if m.proposalPending {
+	if m.seedPending {
+		promptText = "seed> "
+	} else if m.proposalPending {
 		promptText = "blueprint> "
 	}
 	prompt := stylePrompt.Render(promptText)

@@ -145,9 +145,16 @@ func TestIntegration_EngineEvolvesManifest(t *testing.T) {
 	}
 
 	// ── 8b. Approve the blueprint to actually apply the changes ───────────────
-	_, err = eng.ApproveBlueprint(context.Background())
+	applyResult, err := eng.ApproveBlueprint(context.Background())
 	if err != nil {
 		t.Fatalf("engine.ApproveBlueprint: %v", err)
+	}
+
+	// ── 8c. Apply pending seeds (now a separate step) ─────────────────────────
+	if len(applyResult.PendingSeeds) > 0 {
+		if err := eng.ApplySeeds(applyResult.PendingSeeds); err != nil {
+			t.Fatalf("engine.ApplySeeds: %v", err)
+		}
 	}
 
 	// ── 9. Build HTTP handler using the (now-mutated) trie and scripts ─────────

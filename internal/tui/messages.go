@@ -149,3 +149,14 @@ type BlueprintAppliedMsg struct {
 	Result *engine.ApplyResult
 	Err    error
 }
+
+// SeedApproveMsg is sent when the user confirms seeding sample data.
+type SeedApproveMsg struct{}
+
+// SeedDeclineMsg is sent when the user declines seeding sample data.
+type SeedDeclineMsg struct{}
+
+// SeedCompleteMsg is sent when ApplySeeds finishes.
+type SeedCompleteMsg struct {
+	Err error
+}

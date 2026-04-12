@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/vibeserve/vibeserve/internal/engine"
+	"github.com/vibeserve/vibeserve/internal/manifest"
 )
 
 // Pane identifies which side of the split layout has focus.
@@ -39,8 +40,9 @@ type RootModel struct {
 	cancel    context.CancelFunc
 
 	// State
-	ready    bool
-	quitting bool
+	ready        bool
+	quitting     bool
+	pendingSeeds []manifest.Seed
 }
 
 // NewRootModel creates a RootModel wired to the given engine and bus.
@@ -247,14 +249,57 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Role:    RoleAssistant,
 				Content: summary,
 			})
-			m.conversation.AddMessage(Message{
-				Role:    RoleSystem,
-				Content: fmt.Sprintf("Blueprint:  %s/_blueprint\nSwagger:    %s/_swagger\nConsole:    %s/_console", m.serverURL, m.serverURL, m.serverURL),
-			})
+
+			// Check for pending seeds
+			if msg.Result != nil && len(msg.Result.PendingSeeds) > 0 {
+				totalRows := 0
+				for _, s := range msg.Result.PendingSeeds {
+					totalRows += len(s.Rows)
+				}
+				m.pendingSeeds = msg.Result.PendingSeeds
+				m.conversation.seedPending = true
+				m.conversation.AddMessage(Message{
+					Role:    RoleSystem,
+					Content: fmt.Sprintf("Seed sample data? %d tables, %d rows [y/N]", len(msg.Result.PendingSeeds), totalRows),
+				})
+			} else {
+				m.conversation.AddMessage(Message{
+					Role:    RoleSystem,
+					Content: fmt.Sprintf("Blueprint:  %s/_blueprint\nSwagger:    %s/_swagger\nConsole:    %s/_console", m.serverURL, m.serverURL, m.serverURL),
+				})
+			}
+
 			if msg.Result != nil && msg.Result.Manifest != nil {
 				m.dashboard.UpdateFromManifest(msg.Result.Manifest)
 			}
 		}
+
+	case SeedApproveMsg:
+		m.conversation.RemoveLastSystem()
+		m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Seeding..."})
+		cmd := m.applySeeds()
+		cmds = append(cmds, cmd)
+
+	case SeedDeclineMsg:
+		m.conversation.RemoveLastSystem()
+		m.conversation.AddMessage(Message{
+			Role:    RoleSystem,
+			Content: fmt.Sprintf("Blueprint:  %s/_blueprint\nSwagger:    %s/_swagger\nConsole:    %s/_console", m.serverURL, m.serverURL, m.serverURL),
+		})
+		m.pendingSeeds = nil
+
+	case SeedCompleteMsg:
+		m.conversation.RemoveLastSystem()
+		if msg.Err != nil {
+			m.conversation.AddMessage(Message{Role: RoleError, Content: fmt.Sprintf("Seed error: %v", msg.Err)})
+		} else {
+			m.conversation.AddMessage(Message{Role: RoleSystem, Content: "Data seeded."})
+		}
+		m.conversation.AddMessage(Message{
+			Role:    RoleSystem,
+			Content: fmt.Sprintf("Blueprint:  %s/_blueprint\nSwagger:    %s/_swagger\nConsole:    %s/_console", m.serverURL, m.serverURL, m.serverURL),
+		})
+		m.pendingSeeds = nil
 
 	case UndoResultMsg:
 		m.conversation.RemoveLastSystem()
@@ -425,5 +470,15 @@ func (m RootModel) refineBlueprint(feedback string) tea.Cmd {
 			return ApplyResultMsg{Err: err}
 		}
 		return BlueprintProposedMsg{Blueprint: bp}
+	}
+}
+
+// applySeeds dispatches engine.ApplySeeds as a tea.Cmd.
+func (m *RootModel) applySeeds() tea.Cmd {
+	seeds := m.pendingSeeds
+	eng := m.engine
+	return func() tea.Msg {
+		err := eng.ApplySeeds(seeds)
+		return SeedCompleteMsg{Err: err}
 	}
 }
