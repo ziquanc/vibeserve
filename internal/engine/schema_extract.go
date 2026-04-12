@@ -36,6 +36,14 @@ func extractSchemasFromSteps(steps []string) []manifest.Schema {
 	fullText := strings.Join(steps, " ")
 	matches := tablePattern.FindAllStringSubmatch(fullText, -1)
 
+	// Pass 1: collect all table names first so FK detection can link to ANY table.
+	allTableNames := make(map[string]bool)
+	type tableRaw struct {
+		name    string
+		colText string
+	}
+	var rawTables []tableRaw
+
 	for _, match := range matches {
 		tableName := strings.ToLower(match[1])
 		colText := match[2]
@@ -47,14 +55,19 @@ func extractSchemasFromSteps(steps []string) []manifest.Schema {
 			continue
 		}
 		seen[tableName] = true
+		allTableNames[tableName] = true
+		rawTables = append(rawTables, tableRaw{name: tableName, colText: colText})
+	}
 
-		columns := parseColumnsFromText(colText, schemas)
+	// Pass 2: parse columns with full table name knowledge for FK detection.
+	for _, rt := range rawTables {
+		columns := parseColumnsFromText(rt.colText, allTableNames)
 		if len(columns) == 0 {
 			continue
 		}
 
 		schemas = append(schemas, manifest.Schema{
-			Table:   tableName,
+			Table:   rt.name,
 			Columns: columns,
 		})
 	}
@@ -63,15 +76,15 @@ func extractSchemasFromSteps(steps []string) []manifest.Schema {
 }
 
 // parseColumnsFromText parses "id, name, email, role: admin/student, user_id FK"
-// into manifest.Column slice.
-func parseColumnsFromText(text string, existingSchemas []manifest.Schema) []manifest.Column {
-	// Build lookup of existing table names for FK detection
+// into manifest.Column slice. allTables contains ALL known table names for FK detection.
+func parseColumnsFromText(text string, allTables map[string]bool) []manifest.Column {
+	// Build extended lookup with singular forms too
 	tableNames := make(map[string]bool)
-	for _, s := range existingSchemas {
-		tableNames[s.Table] = true
+	for name := range allTables {
+		tableNames[name] = true
 		// Also register singular form
-		if strings.HasSuffix(s.Table, "s") {
-			tableNames[s.Table[:len(s.Table)-1]] = true
+		if strings.HasSuffix(name, "s") {
+			tableNames[name[:len(name)-1]] = true
 		}
 	}
 

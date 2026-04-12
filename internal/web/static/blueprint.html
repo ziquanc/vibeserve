@@ -406,6 +406,17 @@ function renderBlueprint(data) {
       var mermaidDiv = el('div', { cls: 'mermaid' });
       mermaidDiv.textContent = data.diagram;
       wrap.appendChild(mermaidDiv);
+
+      // Add "Open fullscreen" button — opens diagram in a new tab
+      var fullBtn = el('button', {
+        text: '⛶ Open fullscreen',
+        style: 'margin-top:12px;padding:6px 16px;background:var(--primary);color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px'
+      });
+      fullBtn.addEventListener('click', function() {
+        window.open('/_blueprint/diagram', '_blank');
+      });
+      wrap.appendChild(fullBtn);
+
       erSec.appendChild(wrap);
       frag.appendChild(erSec);
     }

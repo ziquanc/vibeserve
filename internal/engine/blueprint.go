@@ -474,12 +474,6 @@ func FormatBlueprintSummary(bp *BlueprintInfo) string {
 			len(bp.Manifest.Schemas), len(bp.Manifest.Routes), len(bp.Manifest.Scripts)))
 	}
 
-	// Show ER diagram
-	if bp.Diagram != "" {
-		b.WriteString("\n")
-		b.WriteString(bp.Diagram)
-	}
-
 	if len(bp.Warnings) > 0 {
 		b.WriteString("\n")
 		for _, w := range bp.Warnings {

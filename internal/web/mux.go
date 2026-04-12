@@ -46,6 +46,7 @@ func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub, blue
 		}
 	}
 	mux.HandleFunc("GET /_blueprint", serveStaticPage("blueprint.html"))
+	mux.HandleFunc("GET /_blueprint/diagram", blueprint.HandleDiagram)
 	mux.HandleFunc("GET /_swagger", serveStaticPage("swagger.html"))
 
 	// Fall through to the existing trie-based API handler
