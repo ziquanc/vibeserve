@@ -268,18 +268,35 @@ func (ia *IntentAnalyzer) isAmbiguousPath(path, resource string) bool {
 		return true
 	}
 
-	// Common non-resource path segments
-	ambiguous := []string{
-		"dashboard", "stats", "analytics", "search", "auth", "login",
-		"logout", "register", "settings", "config", "admin", "health",
-		"status", "metrics", "reports", "export", "import", "upload",
-		"download", "notify", "webhook", "callback", "oauth", "token",
+	// Actions, auth flows, and UI views — NOT resource tables.
+	// These should go to AI to decide the right behavior.
+	ambiguous := map[string]bool{
+		// Auth actions
+		"login": true, "logout": true, "register": true, "signup": true,
+		"signin": true, "signout": true, "auth": true, "oauth": true,
+		"token": true, "refresh": true, "verify": true, "confirm": true,
+		"forgot": true, "reset": true, "activate": true, "deactivate": true,
+		// Hyphenated variants (after hyphen removal)
+		"sign": true, "log": true,
+		// UI views / dashboards
+		"dashboard": true, "stats": true, "analytics": true, "overview": true,
+		"reports": true, "metrics": true, "summary": true, "feed": true,
+		"timeline": true, "leaderboard": true, "performance": true,
+		// Actions
+		"search": true, "upload": true, "download": true, "import": true,
+		"export": true, "sync": true, "notify": true, "subscribe": true,
+		"unsubscribe": true, "checkout": true, "pay": true, "payment": true,
+		"webhook": true, "callback": true, "ping": true, "health": true,
+		// System
+		"settings": true, "config": true, "admin": true, "status": true,
+		"setup": true, "install": true, "init": true, "migrate": true,
 	}
+
 	lower := strings.ToLower(resource)
-	for _, a := range ambiguous {
-		if lower == a {
-			return true
-		}
+	// Remove hyphens for matching: "sign-up" → "signup"
+	normalized := strings.ReplaceAll(lower, "-", "")
+	if ambiguous[lower] || ambiguous[normalized] {
+		return true
 	}
 
 	return false

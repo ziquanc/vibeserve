@@ -286,6 +286,15 @@ if status == undefined {
 	b.WriteString("- Trace the chain. User creates order → order has items → items reduce inventory → inventory triggers restock.\n")
 	b.WriteString("- Do the math. If the prompt says 'thousands of users,' design indexes. If 'real-time,' consider computed fields.\n\n")
 
+	b.WriteString("## Entity vs Action — DO NOT create tables for actions\n\n")
+	b.WriteString("CRITICAL: Only create tables for THINGS THAT STORE DATA (nouns/entities). Never create tables for actions, features, or UI views.\n\n")
+	b.WriteString("These are ENTITIES (create tables): users, products, orders, questions, topics, test_attempts, readiness_scores\n")
+	b.WriteString("These are ACTIONS (use routes on existing tables, NOT new tables): signup, login, logout, register, signin, sign_up, log_in, forgot_password, reset_password, verify_email, checkout, payment, subscribe, unsubscribe, activate, deactivate, approve, reject, submit, publish, archive, import, export, sync, refresh, compute, calculate, generate, analyze\n")
+	b.WriteString("These are VIEWS (computed endpoints, NOT tables): dashboard, overview, analytics, stats, reports, summary, leaderboard, feed, timeline, search, recommendations, study_map, performance, progress, history\n\n")
+	b.WriteString("When the user mentions 'signup' or 'login', create routes that use the 'users' table — do NOT create a 'signups' or 'logins' table.\n")
+	b.WriteString("When the user mentions 'dashboard' or 'analytics', create computed GET endpoints that query existing tables — do NOT create a 'dashboards' table.\n")
+	b.WriteString("When the user mentions 'readiness' or 'mastery', create a scores/tracking table (readiness_scores, topic_mastery) — these are entities that store computed results.\n\n")
+
 	b.WriteString("## Architectural Heuristics\n\n")
 	b.WriteString("When designing an API, think beyond simple CRUD. For every request, consider:\n\n")
 	b.WriteString("1. STATE TRANSITIONS: If an entity has a lifecycle (draft→active→closed),\n")
@@ -308,10 +317,18 @@ func BuildPlanPrompt(userRequest string) string {
 
 You are a senior backend architect. Design a COMPLETE, professional API — not a toy CRUD app.
 
+## CRITICAL: Entity vs Action — only create tables for data entities
+
+NEVER create tables for actions or UI views. Only create tables for THINGS THAT STORE DATA.
+- signup, login, logout, register, checkout, payment → these are ROUTES on the users/orders table, NOT separate tables
+- dashboard, analytics, stats, reports, overview, leaderboard → these are COMPUTED ENDPOINTS that query existing tables, NOT tables
+- readiness, mastery → these ARE tables (readiness_scores, topic_mastery) because they store computed results over time
+
 ## Step 1: Domain Decomposition (do this BEFORE writing steps)
 
 Fully analyze the user's request. Identify:
-- EVERY entity mentioned or implied (explicit and hidden entities)
+- EVERY data entity mentioned or implied (things that store rows of data)
+- Distinguish entities (nouns that store data) from actions (verbs) and views (computed reads)
 - ALL relationships between entities (1:1, 1:N, N:M with join tables)
 - ALL columns for each entity — be exhaustive. Include type fields, status fields, metadata, foreign keys
 - Entity lifecycles (status transitions like draft→active→completed)
