@@ -95,7 +95,10 @@ func newServer(vibeDir string) (*Server, error) {
 			log.Printf("[mcp] Warning: schema apply: %v", err)
 		}
 		for _, seed := range m.Seeds {
-			_ = s.Seed(seed.Table, seed.Rows)
+			count, _ := s.CountAll(seed.Table)
+			if count == 0 {
+				_ = s.Seed(seed.Table, seed.Rows)
+			}
 		}
 	}
 

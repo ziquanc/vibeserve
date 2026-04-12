@@ -276,6 +276,20 @@ func (s *Store) Count(table string) (int, error) {
 	return count, nil
 }
 
+// CountAll returns the total number of rows in a table, including soft-deleted rows.
+// Use this for seed checks where we need to know if any data exists at all.
+func (s *Store) CountAll(table string) (int, error) {
+	if err := ValidateTableName(table); err != nil {
+		return 0, err
+	}
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", table)
+	var count int
+	if err := s.db.QueryRow(query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count all %s: %w", table, err)
+	}
+	return count, nil
+}
+
 // Close closes the underlying database connection.
 func (s *Store) Close() error {
 	return s.db.Close()
