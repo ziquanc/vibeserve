@@ -24,13 +24,29 @@ func extractSchemasFromSteps(steps []string) []manifest.Schema {
 
 	// Common words that look like table names but aren't
 	skipWords := map[string]bool{
-		"e": true, "g": true, "eg": true, "i": true,
+		// Single letters
+		"e": true, "g": true, "eg": true, "i": true, "a": true,
+		// SQL/type keywords
 		"json": true, "text": true, "integer": true, "boolean": true,
 		"real": true, "date": true, "datetime": true, "null": true,
-		"true": true, "false": true, "status": true, "type": true,
-		"values": true, "where": true, "select": true, "from": true,
+		"true": true, "false": true, "values": true,
+		"where": true, "select": true, "from": true,
 		"insert": true, "update": true, "delete": true, "create": true,
-		"filter": true, "example": true, "default": true, "like": true,
+		// Common verbs/actions from step descriptions
+		"status": true, "type": true, "filter": true, "example": true,
+		"default": true, "like": true, "validate": true, "return": true,
+		"start": true, "submit": true, "answer": true, "review": true,
+		"login": true, "logout": true, "register": true, "publish": true,
+		"generate": true, "compute": true, "calculate": true, "trigger": true,
+		"check": true, "verify": true, "store": true, "fetch": true,
+		"list": true, "get": true, "post": true, "patch": true, "put": true,
+		// Common nouns that aren't tables
+		"detail": true, "overview": true, "dashboard": true, "engine": true,
+		"module": true, "trend": true, "breakdown": true, "quality": true,
+		"quick": true, "history": true, "performance": true, "bulk": true,
+		"profile": true, "tree": true, "mastery": true, "readiness": true,
+		"recommendations": true, "weaknesses": true, "sources": true,
+		"states": true, "user": true,
 	}
 
 	fullText := strings.Join(steps, " ")
@@ -59,10 +75,24 @@ func extractSchemasFromSteps(steps []string) []manifest.Schema {
 		rawTables = append(rawTables, tableRaw{name: tableName, colText: colText})
 	}
 
-	// Pass 2: parse columns with full table name knowledge for FK detection.
+	// Pass 2: parse columns and filter — only keep tables that have an "id" column.
+	// This filters out noise like "register (student, password)" which are route
+	// descriptions, not table definitions.
 	for _, rt := range rawTables {
 		columns := parseColumnsFromText(rt.colText, allTableNames)
 		if len(columns) == 0 {
+			continue
+		}
+
+		// Real tables always have an "id" primary key column.
+		hasID := false
+		for _, c := range columns {
+			if c.Name == "id" {
+				hasID = true
+				break
+			}
+		}
+		if !hasID {
 			continue
 		}
 
