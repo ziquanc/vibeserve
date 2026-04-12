@@ -118,36 +118,25 @@ func (r *REPL) handleInput(input string) bool {
 		return false
 	}
 
-	// Blueprint pending — user can approve, reject, or refine
+	// Blueprint pending — send user's response to the AI to decide
 	if r.engine.HasPendingBlueprint() {
-		lower := strings.ToLower(input)
+		lower := strings.ToLower(strings.TrimSpace(input))
 
-		// Approval phrases
-		approvalWords := map[string]bool{
-			"y": true, "yes": true, "approve": true, "ok": true, "okay": true,
-			"good": true, "looks good": true, "lgtm": true, "go": true,
-			"proceed": true, "do it": true, "go ahead": true, "ship it": true,
-			"confirm": true, "accepted": true, "sure": true, "yep": true,
+		// Only hard-code the minimal unambiguous shortcuts
+		if lower == "y" || lower == "n" {
+			if lower == "y" {
+				r.approveBlueprint()
+			} else {
+				r.engine.CancelBlueprint()
+				r.printInfo("Blueprint cancelled.")
+			}
+			return false
 		}
 
-		// Rejection phrases
-		rejectWords := map[string]bool{
-			"n": true, "no": true, "cancel": true, "stop": true, "nope": true,
-			"reject": true, "discard": true, "nevermind": true, "never mind": true,
-		}
-
-		switch {
-		case approvalWords[lower]:
-			r.approveBlueprint()
-		case rejectWords[lower]:
-			r.engine.CancelBlueprint()
-			r.printInfo("Blueprint cancelled.")
-		case lower == "enhance":
-			r.refineBlueprint("The current design is too CRUD-heavy. Add state transitions for entities with lifecycle, computed endpoints for analytics, or validation guards for business rules.")
-		default:
-			// Treat as refinement feedback
-			r.refineBlueprint(input)
-		}
+		// Everything else — refine with the user's feedback.
+		// If the user says "good, just rename X to Y" the LLM applies the change.
+		// After refinement, the new blueprint is shown for approval again.
+		r.refineBlueprint(input)
 		return false
 	}
 

@@ -289,16 +289,16 @@ func (e *Engine) refinePlan(ctx context.Context, feedback string) (*BlueprintInf
 		stepsText.WriteString(fmt.Sprintf("%d. %s\n", i+1, s))
 	}
 
-	// Ask LLM ONLY for the new steps — we merge them ourselves
+	// Ask LLM for modifications based on feedback
 	directPrompt := fmt.Sprintf(`The user is building: "%s"
 
-These steps are ALREADY planned and will be executed:
+These steps are ALREADY planned:
 %s
-The user now wants to ADD: "%s"
+The user says: "%s"
 
-Output ONLY a JSON array of the NEW additional steps needed for this enhancement.
-Do NOT repeat the existing steps above — only output what's NEW.
-Keep the new steps specific and actionable.`, originalPrompt, stepsText.String(), feedback)
+If the feedback asks for changes (rename, add, remove, modify), output a JSON array of ALL steps (existing + modified).
+If the feedback is just approval with minor tweaks, apply the tweaks and output all steps.
+Output ONLY a JSON array of step descriptions, no other text.`, originalPrompt, stepsText.String(), feedback)
 
 	planManifest, planErr := e.provider.Generate(ctx, e.manifest, directPrompt, nil)
 
@@ -313,7 +313,11 @@ Keep the new steps specific and actionable.`, originalPrompt, stepsText.String()
 			if parseErr == nil && len(parsed) > 0 {
 				steps = parsed
 			} else {
-				return nil, fmt.Errorf("failed to parse refined plan: %w", parseErr)
+				// LLM responded conversationally — it might have acknowledged
+				// the feedback. Keep the existing blueprint pending and return
+				// with the chat response as a note.
+				log.Printf("[engine] refinement returned text, not plan: %s", chatErr.Text)
+				return e.pendingBlueprint, nil
 			}
 		} else {
 			return nil, fmt.Errorf("plan refinement failed: %w", planErr)
