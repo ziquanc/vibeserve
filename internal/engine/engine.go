@@ -120,15 +120,23 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 		}
 	}
 
-	// If LLM returned a manifest directly (simple request), propose it directly
+	// If LLM returned a complete manifest directly (with routes + scripts), propose it.
+	// If the manifest is incomplete (schemas only, no routes), treat it as a failed plan
+	// and fall back to direct generation which produces a full manifest.
 	if planManifest != nil && planResult == nil {
-		log.Printf("[engine] LLM returned manifest directly (no planning needed)")
-		bp, err := e.proposeBlueprint(planManifest)
-		if err != nil {
-			return nil, err
+		if len(planManifest.Routes) > 0 && len(planManifest.Scripts) > 0 {
+			log.Printf("[engine] LLM returned complete manifest directly (no planning needed)")
+			bp, err := e.proposeBlueprint(planManifest)
+			if err != nil {
+				return nil, err
+			}
+			e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
+			return &BlueprintResult{Blueprint: bp}, nil
 		}
-		e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
-		return &BlueprintResult{Blueprint: bp}, nil
+		// Manifest is incomplete (schemas only) — use schemas for ER diagram
+		// but fall through to direct generation for the full manifest.
+		log.Printf("[engine] LLM returned incomplete manifest (%d schemas, %d routes) — falling back to direct generation",
+			len(planManifest.Schemas), len(planManifest.Routes))
 	}
 
 	// If no steps parsed, fall back to single-step direct generation
