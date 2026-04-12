@@ -9,6 +9,10 @@ docs/superpowers/
 # VibeServe data
 .vibe/
 
+# Export test artifacts
+vibe-export-*/
+my-api/
+
 # Database files (except testdata)
 *.db
 !testdata/*.db
