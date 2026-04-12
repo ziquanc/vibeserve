@@ -65,8 +65,8 @@ func ScoreHeuristics(m *manifest.Manifest) HeuristicResult {
 		score = 10
 	}
 
-	// Low-score suggestion.
-	if score < 4 {
+	// Low-score suggestion — only when there are routes to evaluate.
+	if score < 4 && len(m.Routes) > 0 {
 		suggestions = append(suggestions,
 			"Architecture is mostly basic CRUD. Consider adding state transitions, computed endpoints, or validation guards.")
 	}

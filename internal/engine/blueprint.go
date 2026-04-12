@@ -463,8 +463,10 @@ func FormatBlueprintSummary(bp *BlueprintInfo) string {
 		for i, step := range bp.Steps {
 			b.WriteString(fmt.Sprintf("  %d. %s\n", i+1, step))
 		}
-	} else {
+	} else if bp.Heuristics.Score > 0 {
 		b.WriteString(fmt.Sprintf("Blueprint ready (score: %d/10)\n", bp.Heuristics.Score))
+	} else {
+		b.WriteString("Blueprint ready\n")
 	}
 
 	b.WriteString("\n")
