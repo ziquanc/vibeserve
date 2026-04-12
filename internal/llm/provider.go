@@ -306,31 +306,42 @@ if status == undefined {
 func BuildPlanPrompt(userRequest string) string {
 	return fmt.Sprintf(`The user wants: "%s"
 
-You are a senior backend architect. Design a professional API, not a toy CRUD app.
+You are a senior backend architect. Design a COMPLETE, professional API — not a toy CRUD app.
 
-Before writing steps, think about the DOMAIN:
-- What are the core entities and their RELATIONSHIPS (foreign keys, join tables)?
-- What entities have a LIFECYCLE (status fields, state transitions like draft→active→completed)?
-- What data needs COMPUTATION (aggregations, statistics, summaries, dashboards)?
-- What business rules need VALIDATION (prevent invalid state, check prerequisites, enforce limits)?
-- What actions trigger SIDE EFFECTS on other entities (lifecycle hooks)?
+## Step 1: Domain Decomposition (do this BEFORE writing steps)
 
-Break this into 3-6 implementation steps. Output a JSON array.
+Fully analyze the user's request. Identify:
+- EVERY entity mentioned or implied (explicit and hidden entities)
+- ALL relationships between entities (1:1, 1:N, N:M with join tables)
+- ALL columns for each entity — be exhaustive. Include type fields, status fields, metadata, foreign keys
+- Entity lifecycles (status transitions like draft→active→completed)
+- Computed data (aggregations, analytics, dashboards, rankings, progress tracking)
+- Business rules and validation guards
+- Features the user described but didn't name as tables (e.g., "readiness" = a readiness_scores table)
+
+DO NOT skip entities or columns that the user explicitly described. If the user says "questions need to include question type, difficulty, options, explanation for each option" — the schema MUST have question_type, difficulty, options, explanation columns from step 1.
+
+## Step 2: Write the plan
+
+Break into 5-12 implementation steps depending on complexity. Simple apps need 5, complex domain apps need 8-12.
 
 Rules:
-- Step 1: Design ALL tables with proper relationships (foreign keys, join tables where needed)
-- Middle steps: Group routes by DOMAIN MODULE, not by HTTP verb. Each step should implement one business capability with its routes AND scripts.
-- At least 2 steps MUST include non-CRUD routes: state transitions (POST /resource/:id/action), computed endpoints (GET /resource/:id/stats), or validation guards.
-- Final step: Add realistic seed data that demonstrates the business logic.
-- Each step description must be SPECIFIC — name the tables, routes, and business logic.
+- Step 1: Design ALL tables with ALL columns, proper relationships (foreign keys, join tables). Be exhaustive — every field the user mentioned MUST appear here. Name every column explicitly.
+- Middle steps: Group by DOMAIN MODULE, not HTTP verb. Each step implements one business capability.
+- At least 3 steps MUST include non-CRUD routes: state transitions, computed endpoints, analytics, or validation guards.
+- Include steps for EVERY feature the user described — readiness tracking, analytics, study maps, dashboards, etc. Don't skip features.
+- Final step: Seed data that exercises the business logic (multiple user roles, various states, enough data for analytics to be meaningful).
+- Each step description must be SPECIFIC — name tables, columns, routes, and business logic.
 
-BAD example (too generic, pure CRUD):
-["Create users table", "Add CRUD routes for users", "Create posts table", "Add CRUD routes for posts"]
+## Output
 
-GOOD example (domain-aware, professional):
-["Create tables: users (with role field), projects (with status: draft/active/archived), tasks (with priority, assignee_id FK, due_date, status: todo/in_progress/done)", "Add user management routes: CRUD + GET /users/:id/assigned-tasks (computed aggregation)", "Add project lifecycle routes: CRUD + POST /projects/:id/activate (draft→active) + POST /projects/:id/archive with validation (no open tasks)", "Add task management routes: CRUD + PATCH /tasks/:id/assign (updates assignee, validates user exists) + PATCH /tasks/:id/complete (marks done, updates project progress)", "Add dashboard routes: GET /projects/:id/stats (task counts by status, overdue count, completion percentage) + GET /users/:id/workload (assigned task summary)", "Add seed data: 3 users (admin, manager, developer), 2 projects with tasks in various states"]
+Output ONLY a JSON array of step descriptions, no other text.
 
-Output ONLY the JSON array, no other text.`, userRequest)
+BAD (too shallow — misses fields, skips features):
+["Create users and questions tables", "Add CRUD routes", "Add test routes", "Seed data"]
+
+GOOD (exhaustive — every entity, every column, every feature):
+["Create ALL tables: users (id, name, email, role: admin/student, exam_type: SPM/STPM/UEC, level: Form1-6/Junior1-Senior3, avatar), subjects (id, name, exam_type, description), topics (id, subject_id FK, name, level, description, sort_order), questions (id, topic_id FK, question_type: mcq/fill_blank/multiple_choice, question_text, options JSON, correct_option, explanation JSON with per-option feedback, difficulty: easy/medium/hard, source_type: year/ai/teacher, source_year, source_detail, level), test_templates (id, name, subject_id FK, question_count, time_limit_minutes, is_mock), test_attempts (id, student_id FK, template_id FK, status: not_started/in_progress/completed/reviewed, score, started_at, completed_at), test_answers (id, attempt_id FK, question_id FK, selected_option, is_correct, time_spent_seconds), topic_mastery (id, student_id FK, topic_id FK, mastery_pct, questions_attempted, questions_correct, last_practiced_at), readiness_scores (id, student_id FK, subject_id FK, readiness_pct, strengths JSON, weaknesses JSON, updated_at)", "Implement Subject & Topic Management: CRUD for subjects filtered by exam_type + CRUD for topics with level validation + GET /subjects/:id/topics to list topics for a subject", ...]`, userRequest)
 }
 
 // ExtractPlan parses a JSON array of step descriptions from LLM output.
