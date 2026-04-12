@@ -13,20 +13,19 @@ import (
 	"strings"
 	"syscall"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"github.com/vibeserve/vibeserve/internal/apitest"
 	"github.com/vibeserve/vibeserve/internal/config"
-	"github.com/vibeserve/vibeserve/internal/export"
 	"github.com/vibeserve/vibeserve/internal/engine"
-	vibeservemcp "github.com/vibeserve/vibeserve/internal/mcp"
+	"github.com/vibeserve/vibeserve/internal/export"
 	"github.com/vibeserve/vibeserve/internal/llm"
 	"github.com/vibeserve/vibeserve/internal/manifest"
+	vibeservemcp "github.com/vibeserve/vibeserve/internal/mcp"
+	vibeserverepl "github.com/vibeserve/vibeserve/internal/repl"
 	"github.com/vibeserve/vibeserve/internal/router"
 	"github.com/vibeserve/vibeserve/internal/runtime"
 	"github.com/vibeserve/vibeserve/internal/snapshot"
 	"github.com/vibeserve/vibeserve/internal/store"
-	"github.com/vibeserve/vibeserve/internal/tui"
 	"github.com/vibeserve/vibeserve/internal/web"
 )
 
@@ -679,27 +678,12 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 	log.Printf("Server running at http://%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("Console at http://%s:%d/_console/", cfg.Server.Host, cfg.Server.Port)
 
-	// Clear terminal before starting TUI (prevents setup wizard text from mixing in)
-	fmt.Print("\033[H\033[2J")
-
-	// Create TUI
+	// Start REPL (plain terminal — scrollable, no AltScreen)
 	serverURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
-	rootModel := tui.NewRootModel(eng, bus, serverURL)
-	p := tea.NewProgram(rootModel)
+	r := vibeserverepl.New(eng, bus, serverURL)
 
-	// Wire streaming callback — send chunks to TUI for live progress
-	if openaiP, ok := provider.(*llm.OpenAIProvider); ok {
-		openaiP.OnChunk = func(accumulated string) {
-			p.Send(tui.StreamingChunkMsg{Text: accumulated})
-		}
-	}
-
-	// Bridge bus events to TUI
-	tui.NewBridge(p, bus)
-
-	// Run TUI (blocks until quit)
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("TUI error: %w", err)
+	if err := r.Run(); err != nil {
+		return fmt.Errorf("REPL error: %w", err)
 	}
 
 	// Cleanup
