@@ -18,16 +18,16 @@ import (
 
 // Colors (ANSI)
 const (
-	reset   = "\033[0m"
-	purple  = "\033[35m"
-	green   = "\033[32m"
-	yellow  = "\033[33m"
-	red     = "\033[31m"
-	cyan    = "\033[36m"
-	dim     = "\033[2m"
-	bold    = "\033[1m"
-	white   = "\033[37m"
-	bgDark  = "\033[48;5;236m"
+	reset  = "\033[0m"
+	purple = "\033[35m"
+	green  = "\033[32m"
+	yellow = "\033[33m"
+	red    = "\033[31m"
+	cyan   = "\033[36m"
+	dim    = "\033[2m"
+	bold   = "\033[1m"
+	white  = "\033[37m"
+	bgDark = "\033[48;5;236m"
 )
 
 var version = "0.2.0"
@@ -121,10 +121,25 @@ func (r *REPL) handleInput(input string) bool {
 	// Blueprint pending — user can approve, reject, or refine
 	if r.engine.HasPendingBlueprint() {
 		lower := strings.ToLower(input)
+
+		// Approval phrases
+		approvalWords := map[string]bool{
+			"y": true, "yes": true, "approve": true, "ok": true, "okay": true,
+			"good": true, "looks good": true, "lgtm": true, "go": true,
+			"proceed": true, "do it": true, "go ahead": true, "ship it": true,
+			"confirm": true, "accepted": true, "sure": true, "yep": true,
+		}
+
+		// Rejection phrases
+		rejectWords := map[string]bool{
+			"n": true, "no": true, "cancel": true, "stop": true, "nope": true,
+			"reject": true, "discard": true, "nevermind": true, "never mind": true,
+		}
+
 		switch {
-		case lower == "y" || lower == "yes" || lower == "approve":
+		case approvalWords[lower]:
 			r.approveBlueprint()
-		case lower == "n" || lower == "no" || lower == "cancel":
+		case rejectWords[lower]:
 			r.engine.CancelBlueprint()
 			r.printInfo("Blueprint cancelled.")
 		case lower == "enhance":
@@ -296,7 +311,7 @@ func (r *REPL) printHeader() {
 
 	fmt.Println()
 	fmt.Printf("  %s%s╭─────────────────────────────────────────────────────────────╮%s\n", bold, purple, reset)
-	fmt.Printf("  %s%s│%s  %s%sVibeServe%s %-49s %s%s│%s\n", bold, purple, reset, bold, white, reset, "v"+version, bold, purple, reset)
+	fmt.Printf("  %s%s│%s  %s%sVibeServe%s %-49s%s%s│%s\n", bold, purple, reset, bold, white, reset, "v"+version, bold, purple, reset)
 	fmt.Printf("  %s%s├─────────────────────────────────────────────────────────────┤%s\n", bold, purple, reset)
 	fmt.Printf("  %s%s│%s  %sPath:%s      %-47s %s%s│%s\n", bold, purple, reset, dim, reset, cwd, bold, purple, reset)
 	fmt.Printf("  %s%s│%s  %sServer:%s    %-47s %s%s│%s\n", bold, purple, reset, dim, reset, r.serverURL, bold, purple, reset)
