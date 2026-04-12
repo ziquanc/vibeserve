@@ -137,37 +137,36 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 		return e.directApply(ctx, prompt)
 	}
 
-	// 3. Plan created — now generate the full manifest so we have the schema
-	// for the ER diagram. Steps are kept for display.
-	log.Printf("[engine] plan created: %d steps — generating manifest for preview", len(steps))
+	// 3. Plan created — generate a lightweight schema preview for the ER diagram.
+	// We only need the schemas (not routes/scripts/seeds) so this is a fast, small call.
+	log.Printf("[engine] plan created: %d steps — generating schema preview", len(steps))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
 
-	// Generate full manifest from the original prompt (direct mode).
-	// Wrap the prompt to ensure the LLM outputs JSON manifest, not conversational text.
-	manifestPrompt := fmt.Sprintf("Implement this request as a complete API manifest with all tables, routes, scripts, and seeds: %s", prompt)
+	schemaPrompt := fmt.Sprintf(`Based on this plan, output ONLY the "schemas" array — just the table definitions with columns, types, foreign keys. No routes, no scripts, no seeds. Output valid JSON: {"version":"1.0","name":"api","schemas":[...]}
+
+Plan:
+%s
+
+Original request: %s`, strings.Join(steps, "\n"), prompt)
+
 	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Generating schema preview..."})
-	fullManifest, genErr := e.provider.Generate(ctx, e.manifest, manifestPrompt, e.history)
+	previewManifest, genErr := e.provider.Generate(ctx, e.manifest, schemaPrompt, nil)
+
+	var diagram string
 	if genErr != nil {
-		// Fall back to plan-only mode (no diagram)
-		log.Printf("[engine] manifest preview failed: %v — showing plan only", genErr)
-		bp := &BlueprintInfo{
-			Steps:   steps,
-			Prompt:  prompt,
-			Summary: fmt.Sprintf("Plan: %d steps to execute", len(steps)),
-		}
-		e.pendingBlueprint = bp
-		e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
-		return &BlueprintResult{Blueprint: bp}, nil
+		log.Printf("[engine] schema preview failed: %v — showing plan without diagram", genErr)
+	} else if previewManifest != nil && len(previewManifest.Schemas) > 0 {
+		diagram = manifest.GenerateMermaidER(previewManifest.Schemas)
+		log.Printf("[engine] schema preview: %d tables for ER diagram", len(previewManifest.Schemas))
 	}
 
-	// Propose with BOTH steps (for display) and manifest (for ER diagram).
-	// On approval, the manifest is applied directly — no step execution needed.
-	bp, err := e.proposeBlueprint(fullManifest)
-	if err != nil {
-		return nil, err
+	bp := &BlueprintInfo{
+		Steps:   steps,
+		Prompt:  prompt,
+		Summary: fmt.Sprintf("Plan: %d steps to execute", len(steps)),
+		Diagram: diagram,
 	}
-	bp.Steps = steps  // Keep steps for readable display
-	bp.Prompt = prompt
+	e.pendingBlueprint = bp
 	e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
 	return &BlueprintResult{Blueprint: bp}, nil
 }
