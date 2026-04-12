@@ -62,6 +62,7 @@ func main() {
 	rootCmd.AddCommand(exportCmd())
 	rootCmd.AddCommand(mcpCmd())
 	rootCmd.AddCommand(testCmd())
+	rootCmd.AddCommand(diffCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -230,6 +231,83 @@ func testCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&port, "port", "p", 8080, "Server port to test against")
 
 	return cmd
+}
+
+func diffCmd() *cobra.Command {
+	var manifestPath string
+
+	cmd := &cobra.Command{
+		Use:   "diff",
+		Short: "Show current API schema, routes, and scripts",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			m, err := manifest.LoadFromFile(manifestPath)
+			if err != nil {
+				return fmt.Errorf("no manifest found at %s. Run 'vibeserve' first to create your API", manifestPath)
+			}
+
+			printManifestSummary(m)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
+	return cmd
+}
+
+func printManifestSummary(m *manifest.Manifest) {
+	fmt.Printf("%s v%s\n\n", m.Name, m.Version)
+
+	if len(m.Schemas) > 0 {
+		fmt.Printf("Tables (%d):\n", len(m.Schemas))
+		for _, s := range m.Schemas {
+			fmt.Printf("  + %s (%d columns)\n", s.Table, len(s.Columns))
+			for _, c := range s.Columns {
+				constraints := ""
+				if c.Primary {
+					constraints += " PK"
+				}
+				if c.Auto {
+					constraints += " AUTO"
+				}
+				if c.Required {
+					constraints += " NOT NULL"
+				}
+				if c.Unique {
+					constraints += " UNIQUE"
+				}
+				if c.References != "" {
+					constraints += " -> " + c.References
+				}
+				fmt.Printf("    %-18s %-10s%s\n", c.Name, c.Type, constraints)
+			}
+			fmt.Println()
+		}
+	} else {
+		fmt.Println("No tables defined.")
+	}
+
+	if len(m.Routes) > 0 {
+		fmt.Printf("Routes (%d):\n", len(m.Routes))
+		for _, r := range m.Routes {
+			desc := ""
+			if r.Description != "" {
+				desc = " — " + r.Description
+			}
+			fmt.Printf("  + %-8s %-28s%s\n", r.Method, r.Path, desc)
+		}
+		fmt.Println()
+	} else {
+		fmt.Println("No routes defined.")
+	}
+
+	fmt.Printf("Scripts: %d total\n", len(m.Scripts))
+	if len(m.Seeds) > 0 {
+		totalRows := 0
+		for _, s := range m.Seeds {
+			totalRows += len(s.Rows)
+		}
+		fmt.Printf("Seeds: %d tables, %d rows\n", len(m.Seeds), totalRows)
+	}
 }
 
 func runExport(manifestPath string, args []string, force, ai bool, format, db string, typescript bool) error {
