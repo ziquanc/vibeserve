@@ -15,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
+	"github.com/vibeserve/vibeserve/internal/apitest"
 	"github.com/vibeserve/vibeserve/internal/config"
 	"github.com/vibeserve/vibeserve/internal/export"
 	"github.com/vibeserve/vibeserve/internal/engine"
@@ -60,6 +61,7 @@ func main() {
 	rootCmd.AddCommand(undoCmd())
 	rootCmd.AddCommand(exportCmd())
 	rootCmd.AddCommand(mcpCmd())
+	rootCmd.AddCommand(testCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -194,6 +196,40 @@ func mcpCmd() *cobra.Command {
 			return vibeservemcp.Run(".vibe")
 		},
 	}
+}
+
+func testCmd() *cobra.Command {
+	var manifestPath string
+	var port int
+
+	cmd := &cobra.Command{
+		Use:   "test",
+		Short: "Run auto-generated API tests against the running server",
+		Long:  "Reads the manifest and runs CRUD lifecycle tests (create, list, get, update, delete, verify-deleted) for each table against the running VibeServe server.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			m, err := manifest.LoadFromFile(manifestPath)
+			if err != nil {
+				return fmt.Errorf("no manifest found at %s. Run 'vibeserve' first to create your API", manifestPath)
+			}
+
+			baseURL := fmt.Sprintf("http://localhost:%d", port)
+			fmt.Printf("Running tests against %s...\n\n", baseURL)
+
+			results := apitest.RunAll(m, baseURL)
+			passed, failed := apitest.PrintResults(results)
+
+			fmt.Printf("\n%d passed, %d failed\n", passed, failed)
+			if failed > 0 {
+				return fmt.Errorf("%d tests failed", failed)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
+	cmd.Flags().IntVarP(&port, "port", "p", 8080, "Server port to test against")
+
+	return cmd
 }
 
 func runExport(manifestPath string, args []string, force, ai bool, format, db string, typescript bool) error {
