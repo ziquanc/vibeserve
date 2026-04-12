@@ -137,27 +137,16 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 		return e.directApply(ctx, prompt)
 	}
 
-	// 3. Plan created — generate a lightweight schema preview for the ER diagram.
-	// We only need the schemas (not routes/scripts/seeds) so this is a fast, small call.
-	log.Printf("[engine] plan created: %d steps — generating schema preview", len(steps))
+	// 3. Plan created — extract schema info from step descriptions for ER diagram.
+	// No LLM call needed — parse table names and columns from the step text.
+	log.Printf("[engine] plan created: %d steps — extracting schema preview", len(steps))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
 
-	schemaPrompt := fmt.Sprintf(`Based on this plan, output ONLY the "schemas" array — just the table definitions with columns, types, foreign keys. No routes, no scripts, no seeds. Output valid JSON: {"version":"1.0","name":"api","schemas":[...]}
-
-Plan:
-%s
-
-Original request: %s`, strings.Join(steps, "\n"), prompt)
-
-	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Generating schema preview..."})
-	previewManifest, genErr := e.provider.Generate(ctx, e.manifest, schemaPrompt, nil)
-
+	schemas := extractSchemasFromSteps(steps)
 	var diagram string
-	if genErr != nil {
-		log.Printf("[engine] schema preview failed: %v — showing plan without diagram", genErr)
-	} else if previewManifest != nil && len(previewManifest.Schemas) > 0 {
-		diagram = manifest.GenerateMermaidER(previewManifest.Schemas)
-		log.Printf("[engine] schema preview: %d tables for ER diagram", len(previewManifest.Schemas))
+	if len(schemas) > 0 {
+		diagram = manifest.GenerateMermaidER(schemas)
+		log.Printf("[engine] extracted %d tables for ER diagram", len(schemas))
 	}
 
 	bp := &BlueprintInfo{
