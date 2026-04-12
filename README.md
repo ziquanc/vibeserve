@@ -36,7 +36,7 @@ VibeServe is an AI-powered CLI that turns natural language into a running API se
 - **Teams** spinning up internal tools, admin panels, or microservices without boilerplate
 - **Learners** exploring API design — see your ideas come to life in seconds
 
-> **New in v0.2** — Express.js export with full security stack (helmet, CORS, JWT, rate-limiting) and proxy/auto-evolve mode that builds your API from incoming HTTP requests.
+> **New in v0.2** — MCP server for AI coding assistants, Express.js export with PostgreSQL + TypeScript, soft delete, search/filtering, and proxy mode that auto-builds your API from HTTP requests.
 
 ## Features
 
@@ -50,8 +50,13 @@ VibeServe is an AI-powered CLI that turns natural language into a running API se
 | **ER Diagram** | Auto-generated entity relationship diagram at `/_blueprint` with interactive table highlighting. |
 | **Swagger UI** | Live API documentation at `/_swagger` — generated from your manifest in real-time. |
 | **Undo** | Every schema change creates a snapshot. Type `/undo` to roll back instantly. |
-| **Export** | `vibeserve export` generates a standalone Go project — Chi router, sqlx, typed models, Dockerfile. Also supports Express.js with `--format express`. |
-| **Proxy Mode** | `vibeserve --proxy` — auto-generates endpoints from unmatched HTTP requests. Your API evolves as you use it. |
+| **Export** | `vibeserve export` generates a standalone Go project — Chi router, sqlx, typed models, Dockerfile. Also supports Express.js with `--format express` and PostgreSQL with `--db postgres`. |
+| **TypeScript** | `--typescript` flag generates type interfaces (User, CreateUserInput, UpdateUserInput) from your schemas. |
+| **Soft Delete** | All tables auto-include `created_at`, `updated_at`, `deleted_at`. Delete sets `deleted_at` instead of removing rows. |
+| **Search & Filtering** | Generated list endpoints support `?sort=name&order=desc&search=term&status=active` out of the box. |
+| **MCP Server** | `vibeserve mcp` — lets AI coding assistants (Claude Code, Cursor) create and manage APIs programmatically. |
+| **API Tests** | `vibeserve test` — auto-generated CRUD lifecycle tests for every table. |
+| **Proxy Mode** | `vibeserve --proxy` — auto-generates endpoints from unmatched HTTP requests. Detects foreign keys and builds relationships. |
 | **Pluggable LLM** | Works with Claude, OpenAI-compatible APIs (z.ai, x.ai, Groq), and local Ollama models. |
 | **Single Binary** | One file. No runtime dependencies. No Docker required. Just download and run. |
 
@@ -120,6 +125,11 @@ curl -X POST http://localhost:8080/tasks -d '{"title":"Ship v1","priority":"high
 | `vibeserve up` | Start server from existing manifest (no AI) |
 | `vibeserve export [dir]` | Export standalone Go project |
 | `vibeserve export --format express [dir]` | Export standalone Express.js project with security middleware |
+| `vibeserve export --format express --db postgres [dir]` | Export Express.js project with PostgreSQL (generates schema.sql + seed.sql) |
+| `vibeserve export --format express --typescript [dir]` | Export Express.js with TypeScript type definitions |
+| `vibeserve test` | Run auto-generated CRUD tests against the running server |
+| `vibeserve diff` | Show current API summary — tables, columns, routes |
+| `vibeserve mcp` | Start MCP server for AI coding assistants (stdio transport) |
 | `vibeserve routes` | Print route table |
 | `vibeserve undo` | Restore last database snapshot |
 | `vibeserve version` | Print version |
@@ -186,6 +196,7 @@ my-api/
   server.js                 # Express + helmet + CORS + rate-limit + JWT + compression
   package.json              # All dependencies pre-configured
   .env.example              # Environment variables template
+  .gitignore                # node_modules, .env, *.db excluded
   Dockerfile                # Production build with health check
   openapi.yaml              # OpenAPI 3.0.3 spec
   README.md                 # Auto-generated docs with route table
@@ -199,19 +210,161 @@ my-api/
     data/state.db            # Your data, copied over
 ```
 
+#### PostgreSQL mode
+
+```bash
+vibeserve export --format express --db postgres ./my-api
+```
+
+Swaps SQLite for PostgreSQL. The generated project uses the `pg` (node-postgres) driver with async/await:
+
+```
+my-api/
+  schema.sql                # CREATE TABLE statements — run against your PostgreSQL database
+  seed.sql                  # INSERT statements with seed data (wrapped in transaction)
+  server.js                 # Same Express security stack
+  src/
+    models/database.js      # pg Pool with async CRUD helpers, $1/$2 parameterized queries
+    routes/{resource}.js    # Async handlers with await, RETURNING * for inserts/updates
+    ...
+```
+
+```bash
+# 1. Set up your database
+psql -d your_database -f schema.sql
+psql -d your_database -f seed.sql    # optional
+
+# 2. Configure and run
+cp .env.example .env                 # Set DATABASE_URL=postgresql://...
+npm install && npm start
+```
+
+You can also set the database in your manifest (`"database": "postgres"`) so exports default to PostgreSQL without the `--db` flag.
+
 **Security stack included:**
 - **helmet** — security HTTP headers
-- **cors** — configurable cross-origin
+- **cors** — configurable cross-origin (defaults to localhost)
 - **express-rate-limit** — 100 req/15min general, 5 req/15min auth routes
-- **jsonwebtoken + bcryptjs** — JWT auth with password hashing
-- **express-validator** — input validation on all POST/PUT/PATCH routes
+- **jsonwebtoken + bcryptjs** — JWT auth with password hashing (JWT_SECRET required on startup)
+- **express-validator** — type-aware input validation on all routes
 - **morgan** — request logging
 - **compression** — gzip responses
 - **1MB body size limit**
+- **Error handling** — try/catch on all routes with Express error middleware
+- **Pagination** — list endpoints support limit/offset (default 50 per page)
+- **Search & filtering** — `?sort=name&order=desc&search=term&field=value`
+- **Soft delete** — all tables include `created_at`, `updated_at`, `deleted_at`
+- **Foreign key indexes** — PostgreSQL export auto-creates indexes on FK columns and `deleted_at`
 
 ```bash
 cd my-api && npm install && npm start
 ```
+
+#### TypeScript support
+
+```bash
+vibeserve export --format express --typescript ./my-api
+```
+
+Generates `src/types.ts` with typed interfaces and a `tsconfig.json`:
+
+```typescript
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface CreateUserInput {
+  name: string;
+  email: string;
+}
+
+export interface UpdateUserInput {
+  name?: string;
+  email?: string;
+}
+
+export interface ListOptions {
+  limit?: number;
+  offset?: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
+  search?: string;
+}
+```
+
+Also adds `typescript` and all `@types/*` packages to `package.json`.
+
+## MCP Server
+
+`vibeserve mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server so AI coding assistants can manage your API programmatically.
+
+**Setup (Claude Code / Cursor):**
+
+```json
+{
+  "mcpServers": {
+    "vibeserve": {
+      "command": "vibeserve",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Available tools:**
+
+| Tool | Description |
+|------|-------------|
+| `create_api` | Create an API from natural language description |
+| `add_feature` | Add tables, columns, or routes to an existing API |
+| `list_routes` | Show all API endpoints |
+| `list_tables` | Show all tables with columns and row counts |
+| `query_data` | Run read-only SQL queries |
+| `insert_data` | Insert rows into tables |
+| `export_project` | Export to Go or Express.js |
+| `get_api_status` | Show API summary |
+| `undo` | Roll back last change |
+
+**Example workflow in Claude Code:**
+
+```
+You: "Create a blog API with users, posts, and comments"
+Claude Code → calls create_api → API is live at localhost:8080
+
+You: "Now build a React frontend that fetches from this API"
+Claude Code → calls list_routes to see endpoints
+Claude Code → generates React components with correct fetch calls
+```
+
+## Testing
+
+```bash
+# Start the server first
+vibeserve up &
+
+# Run auto-generated tests
+vibeserve test
+```
+
+VibeServe reads your manifest and runs a CRUD lifecycle test for each table:
+
+```
+  ✓ users: POST /users — created id=1
+  ✓ users: GET /users — returns array
+  ✓ users: GET /users/:id — got id=1
+  ✓ users: PUT /users/:id — updated
+  ✓ users: DELETE /users/:id — soft deleted
+  ✓ users: GET /users/:id (after delete) — correctly returns 404 after soft delete
+
+6 passed, 0 failed
+```
+
+Use `--port` to test against a different port: `vibeserve test --port 3000`
 
 ## Proxy Mode (Auto-Evolve)
 
@@ -242,6 +395,12 @@ curl http://localhost:8080/products/1/reviews
 ```
 
 Each new request potentially adds new tables and routes. Your API builds itself as you use it. All generated routes persist in the manifest and survive restarts.
+
+**Smart features:**
+- **Foreign key detection** — `POST /order {"product_id": 1}` automatically creates FK reference to the `products` table
+- **Relationship routes** — `GET /users/:id/posts` auto-creates `posts` table with `user_id` FK if it doesn't exist
+- **Soft delete** — all generated DELETE endpoints use soft delete
+- **Rate limiting** — max 30 route generations per minute to prevent API credit burn
 
 ## LLM Providers
 
