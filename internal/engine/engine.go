@@ -137,17 +137,35 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 		return e.directApply(ctx, prompt)
 	}
 
-	// 3. Propose the plan as a blueprint — steps are NOT executed yet.
-	// Execution happens in ApproveBlueprint() after the user confirms.
-	log.Printf("[engine] plan created: %d steps — proposing for review", len(steps))
+	// 3. Plan created — now generate the full manifest so we have the schema
+	// for the ER diagram. Steps are kept for display.
+	log.Printf("[engine] plan created: %d steps — generating manifest for preview", len(steps))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
 
-	bp := &BlueprintInfo{
-		Steps:   steps,
-		Prompt:  prompt,
-		Summary: fmt.Sprintf("Plan: %d steps to execute", len(steps)),
+	// Generate full manifest from the original prompt (direct mode)
+	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Generating schema preview..."})
+	fullManifest, genErr := e.provider.Generate(ctx, e.manifest, prompt, e.history)
+	if genErr != nil {
+		// Fall back to plan-only mode (no diagram)
+		log.Printf("[engine] manifest preview failed: %v — showing plan only", genErr)
+		bp := &BlueprintInfo{
+			Steps:   steps,
+			Prompt:  prompt,
+			Summary: fmt.Sprintf("Plan: %d steps to execute", len(steps)),
+		}
+		e.pendingBlueprint = bp
+		e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
+		return &BlueprintResult{Blueprint: bp}, nil
 	}
-	e.pendingBlueprint = bp
+
+	// Propose with BOTH steps (for display) and manifest (for ER diagram).
+	// On approval, the manifest is applied directly — no step execution needed.
+	bp, err := e.proposeBlueprint(fullManifest)
+	if err != nil {
+		return nil, err
+	}
+	bp.Steps = steps  // Keep steps for readable display
+	bp.Prompt = prompt
 	e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
 	return &BlueprintResult{Blueprint: bp}, nil
 }

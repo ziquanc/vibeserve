@@ -405,7 +405,6 @@ func (m RootModel) View() tea.View {
 
 	v := tea.NewView(header + "\n" + content + "\n" + status)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 

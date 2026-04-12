@@ -126,14 +126,19 @@ func (e *Engine) ApproveBlueprint(ctx context.Context) (*ApplyResult, error) {
 		e.bus.Publish(Event{Type: EventBlueprintApproved, Data: *bp})
 	}
 
-	// Plan-mode: execute steps to build the manifest, then apply.
+	// If we have a manifest (generated during preview), apply it directly.
+	// This is faster and more reliable than re-executing plan steps.
+	if bp.Manifest != nil {
+		result := &ApplyResult{}
+		return e.applyManifest(ctx, bp.Prompt, bp.Manifest, result)
+	}
+
+	// Plan-only mode (no manifest preview) — execute steps to build manifest.
 	if len(bp.Steps) > 0 {
 		return e.executePlanSteps(ctx, bp.Steps, bp.Prompt)
 	}
 
-	// Direct-mode: manifest is already generated, just apply.
-	result := &ApplyResult{}
-	return e.applyManifest(ctx, "", bp.Manifest, result)
+	return nil, fmt.Errorf("blueprint has neither manifest nor steps")
 }
 
 // executePlanSteps runs LLM for each step, accumulates the manifest, then applies.
@@ -448,16 +453,20 @@ func mergeManifests(old, new *manifest.Manifest) *manifest.Manifest {
 func FormatBlueprintSummary(bp *BlueprintInfo) string {
 	var b strings.Builder
 
-	// Plan-mode: show steps instead of manifest analysis
+	// Show steps if available
 	if len(bp.Steps) > 0 {
-		b.WriteString(fmt.Sprintf("Blueprint plan: %d steps\n\n", len(bp.Steps)))
+		b.WriteString(fmt.Sprintf("Blueprint plan: %d steps", len(bp.Steps)))
+		if bp.Heuristics.Score > 0 {
+			b.WriteString(fmt.Sprintf(" (score: %d/10)", bp.Heuristics.Score))
+		}
+		b.WriteString("\n\n")
 		for i, step := range bp.Steps {
 			b.WriteString(fmt.Sprintf("  %d. %s\n", i+1, step))
 		}
-		return b.String()
+	} else {
+		b.WriteString(fmt.Sprintf("Blueprint ready (score: %d/10)\n", bp.Heuristics.Score))
 	}
 
-	b.WriteString(fmt.Sprintf("Blueprint ready (score: %d/10)\n", bp.Heuristics.Score))
 	b.WriteString("\n")
 
 	if bp.Manifest != nil {
@@ -465,6 +474,7 @@ func FormatBlueprintSummary(bp *BlueprintInfo) string {
 			len(bp.Manifest.Schemas), len(bp.Manifest.Routes), len(bp.Manifest.Scripts)))
 	}
 
+	// Show ER diagram
 	if bp.Diagram != "" {
 		b.WriteString("\n")
 		b.WriteString(bp.Diagram)
