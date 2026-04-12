@@ -1,6 +1,8 @@
 package export
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -122,6 +124,103 @@ func TestNextAPIClient(t *testing.T) {
 	}
 }
 
+func TestNextLayout(t *testing.T) {
+	m := testNextManifest()
+	result := GenerateNextLayout(m)
+	if !strings.Contains(result, "Sidebar") {
+		t.Error("layout should include Sidebar")
+	}
+	if !strings.Contains(result, "test-api") {
+		t.Error("layout should use manifest name as title")
+	}
+	if !strings.Contains(result, "export const metadata") {
+		t.Error("layout should export metadata")
+	}
+	if !strings.Contains(result, "RootLayout") {
+		t.Error("layout should export RootLayout")
+	}
+}
+
+func TestNextLayoutDescriptionFallback(t *testing.T) {
+	m := testNextManifest()
+	// No description set — should fallback to "Admin Panel"
+	result := GenerateNextLayout(m)
+	if !strings.Contains(result, "Admin Panel") {
+		t.Error("layout should fallback to 'Admin Panel' when no description")
+	}
+
+	// With description
+	m.Description = "My Custom API"
+	result = GenerateNextLayout(m)
+	if !strings.Contains(result, "My Custom API") {
+		t.Error("layout should use manifest description when set")
+	}
+	if strings.Contains(result, "Admin Panel") {
+		t.Error("layout should not use fallback when description is set")
+	}
+}
+
+func TestNextSidebar(t *testing.T) {
+	m := testNextManifest()
+	result := GenerateNextSidebar(m)
+	if !strings.Contains(result, "/users") {
+		t.Error("sidebar should have link to /users")
+	}
+	if !strings.Contains(result, "/posts") {
+		t.Error("sidebar should have link to /posts")
+	}
+	if !strings.Contains(result, "lucide-react") {
+		t.Error("should import icons from lucide-react")
+	}
+	if !strings.Contains(result, "usePathname") {
+		t.Error("should use usePathname for active state")
+	}
+	if !strings.Contains(result, "'use client'") {
+		t.Error("should be a client component")
+	}
+	if !strings.Contains(result, "test-api") {
+		t.Error("should display the API name")
+	}
+	if !strings.Contains(result, "LayoutDashboard") {
+		t.Error("should import LayoutDashboard for dashboard link")
+	}
+	if !strings.Contains(result, "Users") {
+		t.Error("should have Users icon for users table")
+	}
+	if !strings.Contains(result, "FileText") {
+		t.Error("should have FileText icon for posts table")
+	}
+}
+
+func TestNextDashboard(t *testing.T) {
+	m := testNextManifest()
+	result := GenerateNextDashboard(m)
+	if !strings.Contains(result, "Users") {
+		t.Error("dashboard should show Users card")
+	}
+	if !strings.Contains(result, "Posts") {
+		t.Error("dashboard should show Posts card")
+	}
+	if !strings.Contains(result, "Card") {
+		t.Error("dashboard should use Card component")
+	}
+	if !strings.Contains(result, "'use client'") {
+		t.Error("dashboard should be a client component")
+	}
+	if !strings.Contains(result, "test-api") {
+		t.Error("dashboard should display API name")
+	}
+	if !strings.Contains(result, "3 columns") {
+		t.Error("dashboard should show column count for users (3 columns)")
+	}
+	if !strings.Contains(result, "4 columns") {
+		t.Error("dashboard should show column count for posts (4 columns)")
+	}
+	if !strings.Contains(result, "lucide-react") {
+		t.Error("dashboard should import icons from lucide-react")
+	}
+}
+
 func TestNextUIComponents(t *testing.T) {
 	components := GenerateNextUIComponents()
 
@@ -161,6 +260,45 @@ func TestNextUIComponents(t *testing.T) {
 	for _, part := range []string{"Table", "TableHeader", "TableBody", "TableRow", "TableHead", "TableCell"} {
 		if !strings.Contains(tableContent, part) {
 			t.Errorf("table.tsx should export %s", part)
+		}
+	}
+}
+
+func TestRunNext(t *testing.T) {
+	m := testNextManifest()
+	outDir := filepath.Join(t.TempDir(), "next-export")
+
+	exp := NewExporter(m, outDir)
+	if err := exp.RunNext(); err != nil {
+		t.Fatalf("RunNext failed: %v", err)
+	}
+
+	// Check key files exist
+	expectedFiles := []string{
+		"package.json",
+		"next.config.ts",
+		"tsconfig.json",
+		".env.local",
+		"src/app/layout.tsx",
+		"src/app/page.tsx",
+		"src/app/globals.css",
+		"src/lib/api.ts",
+		"src/lib/types.ts",
+		"src/lib/utils.ts",
+		"src/components/sidebar.tsx",
+		"src/components/ui/button.tsx",
+		"src/components/ui/table.tsx",
+		"src/app/users/page.tsx",
+		"src/app/users/new/page.tsx",
+		"src/app/users/[id]/page.tsx",
+		"src/app/users/[id]/edit/page.tsx",
+		"src/app/posts/page.tsx",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(outDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("missing file: %s", f)
 		}
 	}
 }

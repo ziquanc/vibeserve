@@ -181,7 +181,7 @@ func exportCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing output directory")
 	cmd.Flags().BoolVar(&ai, "ai", false, "Use LLM to translate complex Tengo logic")
-	cmd.Flags().StringVar(&format, "format", "go", "Export format: go or express")
+	cmd.Flags().StringVar(&format, "format", "go", "Export format: go, express, or next")
 	cmd.Flags().StringVar(&db, "db", "", "Database type: sqlite (default) or postgres")
 	cmd.Flags().BoolVar(&typescript, "typescript", false, "Generate TypeScript type definitions")
 
@@ -341,10 +341,10 @@ func runExport(manifestPath string, args []string, force, ai bool, format, db st
 
 	// Validate format
 	switch format {
-	case "go", "express":
+	case "go", "express", "next":
 		// valid
 	default:
-		return fmt.Errorf("unsupported format %q (supported: go, express)", format)
+		return fmt.Errorf("unsupported format %q (supported: go, express, next)", format)
 	}
 
 	fmt.Printf("Exporting to %s (format: %s)...\n", outDir, format)
@@ -363,6 +363,8 @@ func runExport(manifestPath string, args []string, force, ai bool, format, db st
 	switch format {
 	case "express":
 		exportErr = exp.RunExpress()
+	case "next":
+		exportErr = exp.RunNext()
 	default:
 		exportErr = exp.Run()
 	}
@@ -403,6 +405,15 @@ func runExport(manifestPath string, args []string, force, ai bool, format, db st
 		fmt.Printf("    cd %s\n", outDir)
 		fmt.Println("    npm install")
 		fmt.Println("    npm start")
+	case "next":
+		fmt.Printf("  Your Next.js admin panel is ready at: ./%s\n", outDir)
+		fmt.Println()
+		fmt.Println("  To start:")
+		fmt.Printf("    cd %s\n", outDir)
+		fmt.Println("    npm install")
+		fmt.Println("    npm run dev")
+		fmt.Println()
+		fmt.Println("  Make sure your VibeServe server is running at localhost:8080")
 	default:
 		fmt.Printf("  Your production Go server is ready at: ./%s\n", outDir)
 		fmt.Println()
