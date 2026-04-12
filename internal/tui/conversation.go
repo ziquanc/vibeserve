@@ -252,10 +252,10 @@ func (m ConversationModel) Update(msg tea.Msg) (ConversationModel, tea.Cmd) {
 		case "ctrl+k":
 			m.input = m.input[:m.cursorPos]
 
-		case "pgup":
+		case "pgup", "shift+up":
 			m.scrollUp(10)
 
-		case "pgdown":
+		case "pgdown", "shift+down":
 			m.scrollDown(10)
 
 		default:
@@ -404,6 +404,14 @@ func (m ConversationModel) renderMessages(height int) string {
 	}
 
 	visible := allLines[startIdx:endIdx]
+
+	// Show scroll indicator if content is above the viewport
+	if startIdx > 0 {
+		indicator := lipgloss.NewStyle().Foreground(colorMuted).Render(
+			fmt.Sprintf("  ↑ %d more lines (Shift+Up / PgUp to scroll)", startIdx))
+		visible[0] = indicator
+	}
+
 	return strings.Join(visible, "\n")
 }
 
