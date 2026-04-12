@@ -371,32 +371,21 @@ func (m ConversationModel) renderMessages(height int) string {
 			rendered = styleErrorMsg.Width(contentWidth).Render("✗ " + msg.Content)
 		}
 
-		msgLines := strings.Split(rendered, "\n")
-		lines = append(lines, msgLines...)
+		lines = append(lines, rendered)
 		lines = append(lines, "") // blank line between messages
 	}
 
-	// Apply scroll offset
-	visibleStart := m.scrollOffset
-	if visibleStart > len(lines) {
-		visibleStart = len(lines)
-	}
-	visibleLines := lines[visibleStart:]
+	// Show all messages — terminal scrollback handles overflow
+	content := strings.Join(lines, "\n")
 
-	// Truncate to fit height
-	if len(visibleLines) > height {
-		visibleLines = visibleLines[len(visibleLines)-height:]
+	// Only pad to minimum height if content is too short
+	contentLines := strings.Count(content, "\n") + 1
+	if contentLines < height {
+		padding := strings.Repeat("\n", height-contentLines)
+		content = padding + content
 	}
 
-	// Pad if too few lines
-	for len(visibleLines) < height {
-		visibleLines = append([]string{""}, visibleLines...)
-	}
-
-	return lipgloss.NewStyle().
-		Width(m.width).
-		Height(height).
-		Render(strings.Join(visibleLines, "\n"))
+	return content
 }
 
 // renderInput renders the input field with a prompt indicator.

@@ -382,23 +382,20 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m RootModel) View() tea.View {
 	if m.quitting {
 		v := tea.NewView("Shutting down...")
-		v.AltScreen = true
 		return v
 	}
 	if !m.ready {
 		v := tea.NewView("Initializing...")
-		v.AltScreen = true
 		return v
 	}
 
 	header := m.header.View()
 	status := m.statusBar.View()
 
-	// Full-width chat — like Claude Code
+	// Full-width chat — terminal scrollback handles overflow
 	content := m.conversation.View()
 
 	v := tea.NewView(header + "\n" + content + "\n" + status)
-	v.AltScreen = true
 	return v
 }
 
