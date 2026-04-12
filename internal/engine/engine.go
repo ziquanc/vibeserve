@@ -142,9 +142,11 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 	log.Printf("[engine] plan created: %d steps — generating manifest for preview", len(steps))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
 
-	// Generate full manifest from the original prompt (direct mode)
+	// Generate full manifest from the original prompt (direct mode).
+	// Wrap the prompt to ensure the LLM outputs JSON manifest, not conversational text.
+	manifestPrompt := fmt.Sprintf("Implement this request as a complete API manifest with all tables, routes, scripts, and seeds: %s", prompt)
 	e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Generating schema preview..."})
-	fullManifest, genErr := e.provider.Generate(ctx, e.manifest, prompt, e.history)
+	fullManifest, genErr := e.provider.Generate(ctx, e.manifest, manifestPrompt, e.history)
 	if genErr != nil {
 		// Fall back to plan-only mode (no diagram)
 		log.Printf("[engine] manifest preview failed: %v — showing plan only", genErr)
