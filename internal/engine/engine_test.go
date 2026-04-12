@@ -361,9 +361,19 @@ func TestEngine_Apply_ProposesButDoesNotSaveManifest(t *testing.T) {
 		Version:     "1.0",
 		Name:        "saved-api",
 		Description: "Test",
-		Schemas:     []manifest.Schema{},
-		Routes:      []manifest.Route{},
-		Scripts:     []manifest.Script{},
+		Schemas: []manifest.Schema{{
+			Table: "items",
+			Columns: []manifest.Column{
+				{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+				{Name: "name", Type: "TEXT", Required: true},
+			},
+		}},
+		Routes: []manifest.Route{
+			{Path: "/items", Method: "GET", Description: "List items", Script: "list_items"},
+		},
+		Scripts: []manifest.Script{
+			{Name: "list_items", Code: "result := db.query(\"SELECT * FROM items\", [])\nresponse.json(result)"},
+		},
 	}
 
 	eng, vibeDir, _ := newTestEngine(t, &mockProvider{manifest: newManifest})

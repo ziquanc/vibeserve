@@ -126,14 +126,27 @@ func (e *Engine) ApproveBlueprint(ctx context.Context) (*ApplyResult, error) {
 		e.bus.Publish(Event{Type: EventBlueprintApproved, Data: *bp})
 	}
 
-	// If we have a manifest (generated during preview), apply it directly.
-	// This is faster and more reliable than re-executing plan steps.
-	if bp.Manifest != nil {
+	// If we have a complete manifest (with routes + scripts), apply directly.
+	if bp.Manifest != nil && len(bp.Manifest.Routes) > 0 {
 		result := &ApplyResult{}
 		return e.applyManifest(ctx, bp.Prompt, bp.Manifest, result)
 	}
 
-	// Plan-only mode (no manifest preview) — execute steps to build manifest.
+	// Schema preview was approved — now generate the FULL manifest.
+	// This does a single LLM call to produce routes, scripts, and seeds.
+	if bp.Prompt != "" {
+		if e.bus != nil {
+			e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Generating full API..."})
+		}
+		newManifest, err := e.provider.Generate(ctx, e.manifest, bp.Prompt, e.history)
+		if err != nil {
+			return nil, fmt.Errorf("full generation failed: %w", err)
+		}
+		result := &ApplyResult{}
+		return e.applyManifest(ctx, bp.Prompt, newManifest, result)
+	}
+
+	// Legacy: plan-mode step execution.
 	if len(bp.Steps) > 0 {
 		return e.executePlanSteps(ctx, bp.Steps, bp.Prompt)
 	}

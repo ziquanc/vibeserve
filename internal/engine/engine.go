@@ -120,9 +120,10 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 		}
 	}
 
+	// Collect schemas from whatever the LLM returned (for ER diagram).
+	var previewSchemas []manifest.Schema
+
 	// If LLM returned a complete manifest directly (with routes + scripts), propose it.
-	// If the manifest is incomplete (schemas only, no routes), treat it as a failed plan
-	// and fall back to direct generation which produces a full manifest.
 	if planManifest != nil && planResult == nil {
 		if len(planManifest.Routes) > 0 && len(planManifest.Scripts) > 0 {
 			log.Printf("[engine] LLM returned complete manifest directly (no planning needed)")
@@ -133,37 +134,58 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 			e.bus.Publish(Event{Type: EventBlueprintProposed, Data: *bp})
 			return &BlueprintResult{Blueprint: bp}, nil
 		}
-		// Manifest is incomplete (schemas only) — use schemas for ER diagram
-		// but fall through to direct generation for the full manifest.
-		log.Printf("[engine] LLM returned incomplete manifest (%d schemas, %d routes) — falling back to direct generation",
-			len(planManifest.Schemas), len(planManifest.Routes))
+		// Manifest is incomplete (schemas only) — save schemas for ER diagram.
+		previewSchemas = planManifest.Schemas
+		log.Printf("[engine] LLM returned %d schemas (no routes) — proposing for review before full generation",
+			len(planManifest.Schemas))
 	}
 
-	// If no steps parsed, fall back to single-step direct generation
-	if planResult == nil || len(planResult.Steps) == 0 {
-		log.Printf("[engine] no plan created, falling back to direct generation")
+	// Build steps and schemas from whatever we have.
+	var steps []string
+	if planResult != nil && len(planResult.Steps) > 0 {
+		steps = planResult.Steps
+		if len(planResult.Schemas) > 0 {
+			previewSchemas = planResult.Schemas
+		}
+	}
+
+	// If we have schemas but no steps, generate step descriptions from schema names.
+	if len(steps) == 0 && len(previewSchemas) > 0 {
+		var tableNames []string
+		for _, s := range previewSchemas {
+			tableNames = append(tableNames, s.Table)
+		}
+		steps = []string{
+			fmt.Sprintf("Create %d tables: %s", len(previewSchemas), strings.Join(tableNames, ", ")),
+			"Generate CRUD routes and business logic for all tables",
+			"Add validation guards, computed endpoints, and state transitions",
+			"Seed realistic sample data",
+		}
+	}
+
+	// If we still have nothing, fall back to direct generation.
+	if len(steps) == 0 && len(previewSchemas) == 0 {
+		log.Printf("[engine] no plan or schemas — falling back to direct generation")
 		return e.directApply(ctx, prompt)
 	}
 
-	steps := planResult.Steps
+	// Validate schemas before proposing.
+	if len(previewSchemas) > 0 {
+		previewManifest := &manifest.Manifest{Version: "1.0", Name: "preview", Schemas: previewSchemas}
+		if err := manifest.ValidateStructure(previewManifest); err != nil {
+			return nil, fmt.Errorf("schema validation failed: %w", err)
+		}
+	}
 
-	// 3. Build ER diagram from LLM-provided schemas (accurate, no regex parsing).
-	// Falls back to step text extraction if LLM didn't provide schemas.
-	log.Printf("[engine] plan created: %d steps", len(steps))
+	// 3. Build ER diagram and PROPOSE for user review.
+	// The user approves the schema first, THEN we generate the full manifest.
+	log.Printf("[engine] proposing %d steps, %d schemas for review", len(steps), len(previewSchemas))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
 
 	var diagram string
-	schemas := planResult.Schemas
-	if len(schemas) > 0 {
-		diagram = manifest.GenerateMermaidER(schemas)
-		log.Printf("[engine] LLM provided %d schemas for ER diagram", len(schemas))
-	} else {
-		// Fallback: parse step text (less accurate but better than nothing)
-		schemas = extractSchemasFromSteps(steps)
-		if len(schemas) > 0 {
-			diagram = manifest.GenerateMermaidER(schemas)
-			log.Printf("[engine] extracted %d tables from step text for ER diagram", len(schemas))
-		}
+	if len(previewSchemas) > 0 {
+		diagram = manifest.GenerateMermaidER(previewSchemas)
+		log.Printf("[engine] %d tables for ER diagram", len(previewSchemas))
 	}
 
 	bp := &BlueprintInfo{
