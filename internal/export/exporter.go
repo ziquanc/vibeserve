@@ -81,6 +81,9 @@ func DefaultOutputDir(m *manifest.Manifest) string {
 func (e *Exporter) Run() error {
 	m := e.manifest
 
+	// Stage 0: Infer missing foreign keys from _id column patterns.
+	m.Schemas = manifest.InferForeignKeys(m.Schemas)
+
 	// Stage 1: Validate manifest.
 	if err := manifest.Validate(m); err != nil {
 		return fmt.Errorf("manifest validation: %w", err)

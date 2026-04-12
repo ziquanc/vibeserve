@@ -33,6 +33,9 @@ func (e *Exporter) RunExpress() error {
 	m := e.manifest
 	dbType := e.DBType()
 
+	// Stage 0: Infer missing foreign keys from _id column patterns.
+	m.Schemas = manifest.InferForeignKeys(m.Schemas)
+
 	// Stage 1: Validate manifest.
 	if err := manifest.Validate(m); err != nil {
 		return fmt.Errorf("manifest validation: %w", err)
