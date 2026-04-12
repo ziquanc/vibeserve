@@ -342,7 +342,7 @@ func (m ConversationModel) renderMessages(height int) string {
 	}
 
 	// Build all rendered message lines
-	var lines []string
+	var allLines []string
 	contentWidth := m.width - 4
 	if contentWidth < 10 {
 		contentWidth = 10
@@ -371,21 +371,40 @@ func (m ConversationModel) renderMessages(height int) string {
 			rendered = styleErrorMsg.Width(contentWidth).Render("✗ " + msg.Content)
 		}
 
-		lines = append(lines, rendered)
-		lines = append(lines, "") // blank line between messages
+		msgLines := strings.Split(rendered, "\n")
+		allLines = append(allLines, msgLines...)
+		allLines = append(allLines, "") // blank line between messages
 	}
 
-	// Show all messages — terminal scrollback handles overflow
-	content := strings.Join(lines, "\n")
+	totalLines := len(allLines)
 
-	// Only pad to minimum height if content is too short
-	contentLines := strings.Count(content, "\n") + 1
-	if contentLines < height {
-		padding := strings.Repeat("\n", height-contentLines)
-		content = padding + content
+	// scrollOffset = 0 means "show bottom" (most recent)
+	// scrollOffset > 0 means "scrolled up N lines from bottom"
+
+	// Calculate which lines to show
+	if totalLines <= height {
+		// Everything fits — pad top and show all
+		for len(allLines) < height {
+			allLines = append([]string{""}, allLines...)
+		}
+		return strings.Join(allLines, "\n")
 	}
 
-	return content
+	// More lines than viewport — apply scroll offset
+	endIdx := totalLines - m.scrollOffset
+	if endIdx < height {
+		endIdx = height
+	}
+	if endIdx > totalLines {
+		endIdx = totalLines
+	}
+	startIdx := endIdx - height
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	visible := allLines[startIdx:endIdx]
+	return strings.Join(visible, "\n")
 }
 
 // renderInput renders the input field with a prompt indicator.
@@ -437,15 +456,23 @@ func (m ConversationModel) renderInput() string {
 }
 
 func (m *ConversationModel) scrollToBottom() {
-	// Reset offset so renderMessages shows the newest messages
 	m.scrollOffset = 0
 }
 
 func (m *ConversationModel) scrollUp(n int) {
 	m.scrollOffset += n
-	totalLines := m.countTotalLines()
-	if m.scrollOffset > totalLines {
-		m.scrollOffset = totalLines
+	// Cap at max scrollable distance
+	inputAreaHeight := 3
+	viewportHeight := m.height - inputAreaHeight
+	if viewportHeight < 1 {
+		viewportHeight = 1
+	}
+	maxScroll := m.countRenderedLines() - viewportHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.scrollOffset > maxScroll {
+		m.scrollOffset = maxScroll
 	}
 }
 
@@ -456,12 +483,41 @@ func (m *ConversationModel) scrollDown(n int) {
 	}
 }
 
-func (m ConversationModel) countTotalLines() int {
-	count := 0
-	for range m.messages {
-		count += 2 // rough estimate: each message ~ 1 line + blank
+func (m ConversationModel) countRenderedLines() int {
+	if len(m.messages) == 0 {
+		return 0
 	}
-	return count
+	contentWidth := m.width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	total := 0
+	for _, msg := range m.messages {
+		var rendered string
+		switch msg.Role {
+		case RoleUser:
+			prefix := styleUserMsg.Render("You: ")
+			body := lipgloss.NewStyle().
+				Foreground(colorText).
+				Width(contentWidth - lipgloss.Width(prefix)).
+				Render(msg.Content)
+			rendered = prefix + body
+		case RoleAssistant:
+			prefix := styleAssistantMsg.Render("VibeServe: ")
+			body := lipgloss.NewStyle().
+				Foreground(colorText).
+				Width(contentWidth - lipgloss.Width(prefix)).
+				Render(msg.Content)
+			rendered = prefix + body
+		case RoleSystem:
+			rendered = styleSystemMsg.Width(contentWidth).Render("✓ " + msg.Content)
+		case RoleError:
+			rendered = styleErrorMsg.Width(contentWidth).Render("✗ " + msg.Content)
+		}
+		total += strings.Count(rendered, "\n") + 1
+		total++ // blank line between messages
+	}
+	return total
 }
 
 // String renders message content for display (used for fmt.Sprintf compatibility).

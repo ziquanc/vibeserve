@@ -24,6 +24,7 @@ type blueprintResponse struct {
 	Steps      []string       `json:"steps,omitempty"`
 	Prompt     string         `json:"prompt,omitempty"`
 	Changes    []changeInfo   `json:"changes,omitempty"`
+	Diagram    string         `json:"diagram,omitempty"`
 	Heuristics *heuristicInfo `json:"heuristics,omitempty"`
 	Warnings   []string       `json:"warnings,omitempty"`
 }
@@ -73,6 +74,7 @@ func (bh *BlueprintHandler) HandleBlueprint(w http.ResponseWriter, r *http.Reque
 		Steps:    bp.Steps,
 		Prompt:   bp.Prompt,
 		Changes:  changes,
+		Diagram:  bp.Diagram,
 		Heuristics: &heuristicInfo{
 			Score:       bp.Heuristics.Score,
 			Hints:       bp.Heuristics.Hints,

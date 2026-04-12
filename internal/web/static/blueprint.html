@@ -399,6 +399,17 @@ function renderBlueprint(data) {
     });
     frag.appendChild(sec);
 
+    // Show ER diagram from server-generated Mermaid (available even in plan mode)
+    if (data.diagram) {
+      var erSec = sectionEl('Entity Relationship Diagram');
+      var wrap = el('div', { cls: 'er-section' });
+      var mermaidDiv = el('div', { cls: 'mermaid' });
+      mermaidDiv.textContent = data.diagram;
+      wrap.appendChild(mermaidDiv);
+      erSec.appendChild(wrap);
+      frag.appendChild(erSec);
+    }
+
     frag.appendChild(el('div', { style: 'text-align:center;color:var(--muted);padding:20px;font-size:13px', text: 'Type "y" in the terminal to approve and execute, or type feedback to refine.' }));
     return frag;
   }
