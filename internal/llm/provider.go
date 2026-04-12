@@ -352,18 +352,69 @@ Rules:
 
 ## Output
 
-Output ONLY a JSON array of step descriptions, no other text.
+Output a JSON object with two keys:
+1. "steps" — array of step description strings (the implementation plan)
+2. "schemas" — array of table definitions for the ER diagram preview
 
-BAD (too shallow — misses fields, skips features):
-["Create users and questions tables", "Add CRUD routes", "Add test routes", "Seed data"]
+The schemas array uses this format:
+{"table": "tablename", "columns": [{"name": "col", "type": "INTEGER|TEXT|REAL|BOOLEAN|DATETIME", "primary": true, "auto": true, "required": true, "unique": true, "references": "other_table.id"}]}
 
-GOOD (exhaustive — every entity, every column, every feature):
-["Create ALL tables: users (id, name, email, role: admin/student, exam_type: SPM/STPM/UEC, level: Form1-6/Junior1-Senior3, avatar), subjects (id, name, exam_type, description), topics (id, subject_id FK, name, level, description, sort_order), questions (id, topic_id FK, question_type: mcq/fill_blank/multiple_choice, question_text, options JSON, correct_option, explanation JSON with per-option feedback, difficulty: easy/medium/hard, source_type: year/ai/teacher, source_year, source_detail, level), test_templates (id, name, subject_id FK, question_count, time_limit_minutes, is_mock), test_attempts (id, student_id FK, template_id FK, status: not_started/in_progress/completed/reviewed, score, started_at, completed_at), test_answers (id, attempt_id FK, question_id FK, selected_option, is_correct, time_spent_seconds), topic_mastery (id, student_id FK, topic_id FK, mastery_pct, questions_attempted, questions_correct, last_practiced_at), readiness_scores (id, student_id FK, subject_id FK, readiness_pct, strengths JSON, weaknesses JSON, updated_at)", "Implement Subject & Topic Management: CRUD for subjects filtered by exam_type + CRUD for topics with level validation + GET /subjects/:id/topics to list topics for a subject", ...]`, userRequest)
+ONLY include data entity tables in schemas — NOT actions (login, signup) or views (dashboard, analytics).
+
+Output ONLY the JSON object, no markdown fences, no explanation.
+
+Example output structure:
+{"steps": ["Create tables: users (...), subjects (...), topics (...)", "Implement auth routes...", "Add analytics..."], "schemas": [{"table": "users", "columns": [{"name": "id", "type": "INTEGER", "primary": true, "auto": true}, {"name": "email", "type": "TEXT", "required": true, "unique": true}, {"name": "role", "type": "TEXT", "required": true}]}, {"table": "topics", "columns": [{"name": "id", "type": "INTEGER", "primary": true, "auto": true}, {"name": "subject_id", "type": "INTEGER", "required": true, "references": "subjects.id"}, {"name": "name", "type": "TEXT", "required": true}]}]}`, userRequest)
 }
 
-// ExtractPlan parses a JSON array of step descriptions from LLM output.
-// Handles both ["step1", "step2"] and [{"step": "step1"}, ...] formats.
+// PlanResult holds the parsed plan steps and optional schema preview.
+type PlanResult struct {
+	Steps   []string
+	Schemas []manifest.Schema
+}
+
+// ExtractPlan parses LLM plan output. Handles three formats:
+// 1. {"steps": [...], "schemas": [...]} — structured plan with schema preview
+// 2. ["step1", "step2"] — plain array of steps
+// 3. [{"step": "step1"}, ...] — array of step objects
 func ExtractPlan(raw string) ([]string, error) {
+	result, err := ExtractPlanWithSchemas(raw)
+	if err != nil {
+		return nil, err
+	}
+	return result.Steps, nil
+}
+
+// ExtractPlanWithSchemas parses LLM plan output and returns both steps and schemas.
+func ExtractPlanWithSchemas(raw string) (*PlanResult, error) {
+	raw = strings.TrimSpace(raw)
+
+	// Try structured format first: {"steps": [...], "schemas": [...]}
+	if idx := strings.Index(raw, "{"); idx >= 0 {
+		type structuredPlan struct {
+			Steps   []string          `json:"steps"`
+			Schemas []manifest.Schema `json:"schemas"`
+		}
+		var sp structuredPlan
+		// Find the outermost { }
+		end := strings.LastIndex(raw, "}")
+		if end > idx {
+			if err := json.Unmarshal([]byte(raw[idx:end+1]), &sp); err == nil && len(sp.Steps) > 0 {
+				return &PlanResult{Steps: sp.Steps, Schemas: sp.Schemas}, nil
+			}
+		}
+	}
+
+	// Fallback to legacy array format
+	steps, err := extractPlanArray(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &PlanResult{Steps: steps}, nil
+}
+
+// extractPlanArray parses a JSON array of step descriptions from LLM output.
+func extractPlanArray(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 
 	// Find the array

@@ -102,13 +102,13 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 	planPrompt := llm.BuildPlanPrompt(prompt)
 	planManifest, planErr := e.provider.Generate(ctx, e.manifest, planPrompt, nil)
 
-	var steps []string
+	var planResult *llm.PlanResult
 	if planErr != nil {
 		if chatErr, ok := planErr.(*llm.ChatOnlyError); ok {
-			// Try to parse as plan (JSON array)
-			parsed, parseErr := llm.ExtractPlan(chatErr.Text)
-			if parseErr == nil && len(parsed) > 0 {
-				steps = parsed
+			// Try to parse as plan (structured or array)
+			parsed, parseErr := llm.ExtractPlanWithSchemas(chatErr.Text)
+			if parseErr == nil && len(parsed.Steps) > 0 {
+				planResult = parsed
 			} else {
 				// Not a plan — might be a conversational response to a question
 				e.history = append(e.history, llm.Message{Role: "user", Content: prompt})
@@ -121,7 +121,7 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 	}
 
 	// If LLM returned a manifest directly (simple request), propose it directly
-	if planManifest != nil && len(steps) == 0 {
+	if planManifest != nil && planResult == nil {
 		log.Printf("[engine] LLM returned manifest directly (no planning needed)")
 		bp, err := e.proposeBlueprint(planManifest)
 		if err != nil {
@@ -132,21 +132,30 @@ func (e *Engine) Apply(ctx context.Context, prompt string) (*BlueprintResult, er
 	}
 
 	// If no steps parsed, fall back to single-step direct generation
-	if len(steps) == 0 {
+	if planResult == nil || len(planResult.Steps) == 0 {
 		log.Printf("[engine] no plan created, falling back to direct generation")
 		return e.directApply(ctx, prompt)
 	}
 
-	// 3. Plan created — extract schema info from step descriptions for ER diagram.
-	// No LLM call needed — parse table names and columns from the step text.
-	log.Printf("[engine] plan created: %d steps — extracting schema preview", len(steps))
+	steps := planResult.Steps
+
+	// 3. Build ER diagram from LLM-provided schemas (accurate, no regex parsing).
+	// Falls back to step text extraction if LLM didn't provide schemas.
+	log.Printf("[engine] plan created: %d steps", len(steps))
 	e.bus.Publish(Event{Type: EventPlanCreated, Data: PlanInfo{Steps: steps, Total: len(steps)}})
 
-	schemas := extractSchemasFromSteps(steps)
 	var diagram string
+	schemas := planResult.Schemas
 	if len(schemas) > 0 {
 		diagram = manifest.GenerateMermaidER(schemas)
-		log.Printf("[engine] extracted %d tables for ER diagram", len(schemas))
+		log.Printf("[engine] LLM provided %d schemas for ER diagram", len(schemas))
+	} else {
+		// Fallback: parse step text (less accurate but better than nothing)
+		schemas = extractSchemasFromSteps(steps)
+		if len(schemas) > 0 {
+			diagram = manifest.GenerateMermaidER(schemas)
+			log.Printf("[engine] extracted %d tables from step text for ER diagram", len(schemas))
+		}
 	}
 
 	bp := &BlueprintInfo{
