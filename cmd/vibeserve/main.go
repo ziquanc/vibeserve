@@ -656,6 +656,7 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 			return store.New(dsn)
 		},
 	})
+	eng.LoadHistory() // Restore conversation context from previous sessions
 
 	var apiHandler http.Handler
 	if proxyMode {

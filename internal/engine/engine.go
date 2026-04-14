@@ -404,12 +404,15 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 	}
 	log.Printf("[engine] manifest saved, %d total routes now active", len(newManifest.Routes))
 
-	// Update conversation history
+	// Update conversation history and persist to disk
 	manifestJSON, _ := json.Marshal(newManifest)
 	e.history = append(e.history,
 		llm.Message{Role: "user", Content: prompt},
 		llm.Message{Role: "assistant", Content: string(manifestJSON)},
 	)
+	if err := e.saveHistory(); err != nil {
+		log.Printf("[engine] failed to save history: %v", err)
+	}
 
 	log.Printf("[engine] Apply complete: %d changes, %d warnings", len(result.Changes), len(result.Warnings))
 	return result, nil
@@ -471,6 +474,44 @@ func (e *Engine) saveManifest() error {
 	}
 	path := filepath.Join(e.vibeDir, "manifest.json")
 	return os.WriteFile(path, data, 0o644)
+}
+
+// saveHistory writes conversation history to .vibe/history.json.
+func (e *Engine) saveHistory() error {
+	if e.vibeDir == "" {
+		return nil
+	}
+	// Keep last 50 messages to avoid unbounded growth
+	history := e.history
+	if len(history) > 50 {
+		history = history[len(history)-50:]
+	}
+	data, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(e.vibeDir, "history.json")
+	return os.WriteFile(path, data, 0o644)
+}
+
+// LoadHistory reads conversation history from .vibe/history.json.
+// Called during engine initialization to restore context from previous sessions.
+func (e *Engine) LoadHistory() {
+	if e.vibeDir == "" {
+		return
+	}
+	path := filepath.Join(e.vibeDir, "history.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // no history file — fresh session
+	}
+	var history []llm.Message
+	if err := json.Unmarshal(data, &history); err != nil {
+		log.Printf("[engine] failed to load history: %v", err)
+		return
+	}
+	e.history = history
+	log.Printf("[engine] loaded %d history messages from previous session", len(history))
 }
 
 // ApplyManifestDirect applies a manifest directly, bypassing proposal mode.

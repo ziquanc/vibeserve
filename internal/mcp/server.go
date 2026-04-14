@@ -115,6 +115,7 @@ func newServer(vibeDir string) (*Server, error) {
 			return store.New(dsn)
 		},
 	})
+	eng.LoadHistory()
 
 	return &Server{
 		eng:      eng,
