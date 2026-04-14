@@ -17,8 +17,9 @@ type Manifest struct {
 }
 
 type Schema struct {
-	Table   string   `json:"table"`
-	Columns []Column `json:"columns"`
+	Table        string        `json:"table"`
+	Columns      []Column      `json:"columns"`
+	StateMachine *StateMachine `json:"state_machine,omitempty"`
 }
 
 type Column struct {
