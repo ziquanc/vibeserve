@@ -205,50 +205,67 @@ func (r *REPL) handlePrompt(input string) {
 }
 
 func (r *REPL) approveBlueprint() {
-	// Subscribe to step events for live progress
-	doneCh := make(chan struct{})
+	// Track current step for animated spinner
+	var currentStep atomic.Value
+	currentStep.Store("")
+
 	r.bus.Subscribe(engine.EventStepStarted, func(e engine.Event) {
 		info, ok := e.Data.(engine.StepInfo)
 		if !ok {
 			return
 		}
-		select {
-		case <-doneCh:
-			return
-		default:
-			// Truncate long descriptions
-			desc := info.Description
-			if len(desc) > 80 {
-				desc = desc[:77] + "..."
-			}
-			fmt.Printf("\r\033[K  %s⠹ Step %d/%d:%s %s", purple, info.Index, info.Total, reset, desc)
+		desc := info.Description
+		if len(desc) > 70 {
+			desc = desc[:67] + "..."
 		}
+		currentStep.Store(fmt.Sprintf("Step %d/%d: %s", info.Index, info.Total, desc))
 	})
 	r.bus.Subscribe(engine.EventStepCompleted, func(e engine.Event) {
 		info, ok := e.Data.(engine.StepInfo)
 		if !ok {
 			return
 		}
-		select {
-		case <-doneCh:
-			return
-		default:
-			desc := info.Description
-			if len(desc) > 80 {
-				desc = desc[:77] + "..."
-			}
-			if len(info.Changes) > 0 && strings.HasPrefix(info.Changes[0], "failed") {
-				fmt.Printf("\r\033[K  %s✗ Step %d/%d:%s %s — %s\n", red, info.Index, info.Total, reset, desc, info.Changes[0])
-			} else {
-				fmt.Printf("\r\033[K  %s✓ Step %d/%d:%s %s (%d changes)\n", green, info.Index, info.Total, reset, desc, len(info.Changes))
-			}
+		desc := info.Description
+		if len(desc) > 70 {
+			desc = desc[:67] + "..."
+		}
+		if len(info.Changes) > 0 && strings.HasPrefix(info.Changes[0], "failed") {
+			fmt.Printf("\r\033[K  %s✗ Step %d/%d:%s %s — %s\n", red, info.Index, info.Total, reset, desc, info.Changes[0])
+		} else {
+			fmt.Printf("\r\033[K  %s✓ Step %d/%d:%s %s (%d changes)\n", green, info.Index, info.Total, reset, desc, len(info.Changes))
 		}
 	})
 
+	// Animated spinner that shows current step + streaming text
+	r.streamingText.Store("")
+	stopSpinner := make(chan struct{})
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-stopSpinner:
+				return
+			default:
+				step := currentStep.Load().(string)
+				if step == "" {
+					step = "Preparing..."
+				}
+				stream := r.streamingText.Load().(string)
+				if stream != "" {
+					step = step + " " + dim + stream + reset
+				}
+				fmt.Printf("\r\033[K  %s%s%s %s", purple, frames[i%len(frames)], reset, step)
+				i++
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+
 	fmt.Println()
 	result, err := r.engine.ApproveBlueprint(r.ctx)
-	close(doneCh) // stop event handlers
-	fmt.Print("\r\033[K") // clear any residual line
+	close(stopSpinner)
+	fmt.Print("\r\033[K")
 
 	if err != nil {
 		r.printError(err.Error())
