@@ -26,6 +26,7 @@ import (
 	"github.com/vibeserve/vibeserve/internal/runtime"
 	"github.com/vibeserve/vibeserve/internal/snapshot"
 	"github.com/vibeserve/vibeserve/internal/store"
+	"github.com/vibeserve/vibeserve/internal/templates"
 	"github.com/vibeserve/vibeserve/internal/watch"
 	"github.com/vibeserve/vibeserve/internal/web"
 )
@@ -64,6 +65,7 @@ func main() {
 	rootCmd.AddCommand(testCmd())
 	rootCmd.AddCommand(diffCmd())
 	rootCmd.AddCommand(watchCmd())
+	rootCmd.AddCommand(initCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -230,6 +232,63 @@ func testCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
 	cmd.Flags().IntVarP(&port, "port", "p", 8080, "Server port to test against")
+
+	return cmd
+}
+
+func initCmd() *cobra.Command {
+	var templateName string
+	var list bool
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize a project from a starter template",
+		Long:  "Create a new VibeServe project from a pre-built template. No LLM call needed — instant setup.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if list {
+				fmt.Print("\n  Available templates:\n\n")
+				for _, t := range templates.List() {
+					fmt.Printf("    %-15s %s\n", t.Name, t.Description)
+				}
+				fmt.Printf("\n  Usage: vibeserve init --template <name>\n\n")
+				return nil
+			}
+
+			if templateName == "" {
+				fmt.Print("\n  Available templates:\n\n")
+				for _, t := range templates.List() {
+					fmt.Printf("    %-15s %s\n", t.Name, t.Description)
+				}
+				fmt.Printf("\n  Usage: vibeserve init --template <name>\n\n")
+				return nil
+			}
+
+			tmpl, err := templates.Get(templateName)
+			if err != nil {
+				return err
+			}
+
+			// Save manifest
+			os.MkdirAll(".vibe", 0o755)
+			data, _ := json.MarshalIndent(tmpl.Manifest, "", "  ")
+			if err := os.WriteFile(".vibe/manifest.json", data, 0o644); err != nil {
+				return fmt.Errorf("write manifest: %w", err)
+			}
+
+			fmt.Printf("\n  ✓ Initialized %s template\n\n", tmpl.Name)
+			fmt.Printf("    %s\n", tmpl.Description)
+			fmt.Printf("    %d tables, %d routes, %d scripts\n\n", len(tmpl.Manifest.Schemas), len(tmpl.Manifest.Routes), len(tmpl.Manifest.Scripts))
+			fmt.Printf("  Next steps:\n")
+			fmt.Printf("    vibeserve              Start interactive mode (modify with AI)\n")
+			fmt.Printf("    vibeserve up           Start the API server\n")
+			fmt.Printf("    vibeserve export       Export to production code\n\n")
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&templateName, "template", "t", "", "Template name (blog, ecommerce, saas)")
+	cmd.Flags().BoolVar(&list, "list", false, "List available templates")
 
 	return cmd
 }
