@@ -49,6 +49,7 @@ A manifest is a JSON object with these fields:
         {"name": "id", "type": "INTEGER", "primary": true, "auto": true},
         {"name": "email", "type": "TEXT", "required": true, "unique": true},
         {"name": "name", "type": "TEXT", "required": true},
+        {"name": "password_hash", "type": "TEXT", "required": true},
         {"name": "active", "type": "BOOLEAN", "default": true},
         {"name": "score", "type": "REAL"},
         {"name": "created_at", "type": "DATETIME", "default": "NOW"},
@@ -164,6 +165,11 @@ IMPORTANT: "error" is a reserved keyword in Tengo. Use response.fail() — never
 - crypto.hash(str) → SHA-256 hex string
 - crypto.uuid() → random UUID v4 string
 - crypto.random(min, max) → random integer in range [min, max]
+- crypto.hash_password(str) → bcrypt hash string
+- crypto.verify_password(plain, hash) → true/false
+
+### auth — Token generation (available when users table has password_hash)
+- auth.generate_tokens(user_id, role, email) → {access_token: string, refresh_token: string}
 
 ### log — Logging
 - log.info(message) → log at info level
@@ -311,20 +317,30 @@ if status == undefined {
 	b.WriteString("- VIEWS are computed endpoints, NOT tables: dashboard, analytics, stats, reports\n")
 	b.WriteString("- TRACKING tables store computed results: topic_mastery, readiness_scores, activity_logs\n\n")
 
-	b.WriteString("### 2. RELATIONSHIPS: How do tables connect?\n")
+	b.WriteString("### 2. AUTH (auto-generated)\n")
+	b.WriteString("When creating a users table, include a password_hash TEXT column. Auth routes are AUTO-GENERATED:\n")
+	b.WriteString("- POST /auth/register, POST /auth/login, POST /auth/refresh, POST /auth/logout\n")
+	b.WriteString("- GET /me, PUT /me (user profile)\n")
+	b.WriteString("- POST /auth/forgot-password, POST /auth/reset-password, POST /auth/verify-email\n")
+	b.WriteString("Do NOT manually create auth routes — they are auto-generated when password_hash column exists.\n")
+	b.WriteString("In scripts, use request.auth() to check authentication — returns {user_id, role, email} or undefined.\n")
+	b.WriteString("Use auth.generate_tokens(user_id, role, email) to create JWT + refresh tokens.\n")
+	b.WriteString("Use crypto.hash_password(plain) and crypto.verify_password(plain, hash) for passwords.\n\n")
+
+	b.WriteString("### 3. RELATIONSHIPS: How do tables connect?\n")
 	b.WriteString("- Main entities: full tables with all columns\n")
 	b.WriteString("- Junction tables (N:M): post_tags, user_roles — managed through parent routes\n")
 	b.WriteString("- Child records: test_answers, order_items — managed through parent routes\n")
 	b.WriteString("- Foreign keys: every _id column references a parent table\n\n")
 
-	b.WriteString("### 3. STATE MACHINES: What has a lifecycle?\n")
+	b.WriteString("### 4. STATE MACHINES: What has a lifecycle?\n")
 	b.WriteString("- Multi-step workflows need state_machine: orders (draft→submitted→approved), articles (draft→published)\n")
 	b.WriteString("- Simple flags do NOT: active/inactive is just a boolean column\n")
 	b.WriteString("- Format: {\"state_machine\": {\"field\": \"status\", \"initial\": \"draft\", \"transitions\": [{\"from\": \"draft\", \"to\": \"submitted\", \"action\": \"submit\", \"guard\": {\"role\": \"admin\"}}]}}\n")
 	b.WriteString("- Guard types: role (\"admin\") and/or condition (\"total > 0\")\n")
 	b.WriteString("- Transition routes (POST /table/:id/action) are AUTO-GENERATED — do NOT create them manually\n\n")
 
-	b.WriteString("### 4. ROUTES: Who uses the API and what do they need?\n")
+	b.WriteString("### 5. ROUTES: Who uses the API and what do they need?\n")
 	b.WriteString("For EACH user role, design complete route coverage:\n\n")
 	b.WriteString("PUBLIC (no auth):\n")
 	b.WriteString("- Read-only access to public content: GET /posts, GET /products\n")
@@ -344,7 +360,7 @@ if status == undefined {
 	b.WriteString("- GET /posts/:id/comments — comments on a post\n")
 	b.WriteString("- POST /posts/:id/tags — manage tags on a post (junction table)\n\n")
 
-	b.WriteString("### 5. ROUTE TYPES: Not everything is CRUD\n")
+	b.WriteString("### 6. ROUTE TYPES: Not everything is CRUD\n")
 	b.WriteString("Main entities → full CRUD (list, get, create, update, delete)\n")
 	b.WriteString("Junction tables → managed via parent (POST /posts/:id/tags, DELETE /posts/:id/tags/:tagId)\n")
 	b.WriteString("Child records → managed via parent (POST /tests/:id/answer)\n")
@@ -352,7 +368,7 @@ if status == undefined {
 	b.WriteString("Actions → POST with business logic (POST /orders/:id/approve)\n")
 	b.WriteString("Dashboards → aggregated queries (GET /admin/dashboard, GET /student/dashboard)\n\n")
 
-	b.WriteString("### 6. BUSINESS LOGIC: What rules exist?\n")
+	b.WriteString("### 7. BUSINESS LOGIC: What rules exist?\n")
 	b.WriteString("- Validation guards: check prerequisites before mutations (total > 0 before submit)\n")
 	b.WriteString("- Computed endpoints: aggregations, statistics, progress tracking\n")
 	b.WriteString("- Side effects: submitting a test updates mastery scores, placing an order reduces inventory\n")
