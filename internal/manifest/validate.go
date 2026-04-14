@@ -126,15 +126,18 @@ func validateStructural(m *Manifest) error {
 			if len(sm.Transitions) == 0 {
 				return fmt.Errorf("state_machine must have at least one transition in table %q", s.Table)
 			}
-			actionNames := make(map[string]bool)
+			transitionKeys := make(map[string]bool)
 			for _, t := range sm.Transitions {
 				if t.From == "" || t.To == "" || t.Action == "" {
 					return fmt.Errorf("transition from/to/action are all required in table %q", s.Table)
 				}
-				if actionNames[t.Action] {
-					return fmt.Errorf("duplicate transition action %q in table %q", t.Action, s.Table)
+				// Same action from different states is OK (e.g., cancel from pending AND cancel from shipped).
+				// Only reject same from+action combination (ambiguous transition).
+				key := t.From + "→" + t.Action
+				if transitionKeys[key] {
+					return fmt.Errorf("duplicate transition: action %q from state %q in table %q", t.Action, t.From, s.Table)
 				}
-				actionNames[t.Action] = true
+				transitionKeys[key] = true
 			}
 			// Check initial state has at least one outgoing transition
 			hasInitialTransition := false

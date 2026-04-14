@@ -66,17 +66,34 @@ func GenerateTransitionRoutes(table string, sm *StateMachine) ([]Route, []Script
 	var routes []Route
 	var scripts []Script
 
-	// Generate a route + script for each transition action.
+	// Group transitions by action — same action from different states becomes one route.
+	actionGroups := make(map[string][]Transition)
+	var actionOrder []string
 	for _, tr := range sm.Transitions {
-		scriptName := fmt.Sprintf("%s_%s", singular, tr.Action)
-		path := fmt.Sprintf("/%s/:id/%s", table, tr.Action)
+		if _, exists := actionGroups[tr.Action]; !exists {
+			actionOrder = append(actionOrder, tr.Action)
+		}
+		actionGroups[tr.Action] = append(actionGroups[tr.Action], tr)
+	}
 
-		code := generateTransitionScript(table, sm.Field, tr)
+	for _, action := range actionOrder {
+		transitions := actionGroups[action]
+		scriptName := fmt.Sprintf("%s_%s", singular, action)
+		path := fmt.Sprintf("/%s/:id/%s", table, action)
+
+		// Build description from all transitions for this action
+		var descs []string
+		for _, tr := range transitions {
+			descs = append(descs, fmt.Sprintf("%s→%s", tr.From, tr.To))
+		}
+		desc := fmt.Sprintf("Transition %s: %s", singular, strings.Join(descs, " or "))
+
+		code := generateTransitionScript(table, sm.Field, transitions)
 
 		routes = append(routes, Route{
 			Path:         path,
 			Method:       "POST",
-			Description:  fmt.Sprintf("Transition %s from %s to %s", singular, tr.From, tr.To),
+			Description:  desc,
 			Script:       scriptName,
 			ResponseType: "object",
 		})
@@ -106,8 +123,77 @@ func GenerateTransitionRoutes(table string, sm *StateMachine) ([]Route, []Script
 	return routes, scripts
 }
 
-// generateTransitionScript builds a Tengo script for a single state transition.
-func generateTransitionScript(table, field string, tr Transition) string {
+// generateTransitionScript builds a Tengo script for one or more transitions
+// sharing the same action (e.g., "cancel" from pending AND from shipped).
+func generateTransitionScript(table, field string, transitions []Transition) string {
+	if len(transitions) == 1 {
+		return generateSingleTransitionScript(table, field, transitions[0])
+	}
+
+	// Multiple from-states for the same action — generate if/elseif chain
+	var lines []string
+	lines = append(lines,
+		`id := request.param("id")`,
+		fmt.Sprintf(`row := db.query_one("SELECT * FROM %s WHERE id = ? AND deleted_at IS NULL", [id])`, table),
+		`if row == undefined {`,
+		fmt.Sprintf(`  response.fail(404, "%s not found")`, singularize(table)),
+		`}`,
+	)
+
+	// Build valid from-states list for error message
+	var validStates []string
+	for _, tr := range transitions {
+		validStates = append(validStates, tr.From)
+	}
+
+	for i, tr := range transitions {
+		keyword := "if"
+		if i > 0 {
+			keyword = "} else if"
+		}
+		lines = append(lines, fmt.Sprintf(`%s row.%s == "%s" {`, keyword, field, tr.From))
+
+		// Role guard
+		if tr.Guard != nil && tr.Guard.Role != "" {
+			lines = append(lines,
+				`  user_auth := request.auth()`,
+				`  if user_auth == undefined {`,
+				`    response.fail(401, "authentication required")`,
+				`  }`,
+				fmt.Sprintf(`  if user_auth.role != "%s" {`, tr.Guard.Role),
+				fmt.Sprintf(`    response.fail(403, "%s requires %s role")`, tr.Action, tr.Guard.Role),
+				`  }`,
+			)
+		}
+
+		// Condition guard
+		if tr.Guard != nil && tr.Guard.Condition != "" {
+			condition := prefixRowFields(tr.Guard.Condition)
+			lines = append(lines,
+				fmt.Sprintf(`  if !(%s) {`, condition),
+				fmt.Sprintf(`    response.fail(400, "guard condition not met: %s")`, tr.Guard.Condition),
+				`  }`,
+			)
+		}
+
+		lines = append(lines,
+			fmt.Sprintf(`  db.query("UPDATE %s SET %s = '%s', updated_at = date.now() WHERE id = ?", [id])`, table, field, tr.To),
+		)
+	}
+
+	lines = append(lines,
+		`} else {`,
+		fmt.Sprintf(`  response.fail(400, "cannot %s from current state; valid states: %s")`, transitions[0].Action, strings.Join(validStates, ", ")),
+		`}`,
+		fmt.Sprintf(`result := db.query_one("SELECT * FROM %s WHERE id = ?", [id])`, table),
+		`response.json(result)`,
+	)
+
+	return joinLines(lines)
+}
+
+// generateSingleTransitionScript builds a Tengo script for a single state transition.
+func generateSingleTransitionScript(table, field string, tr Transition) string {
 	var lines []string
 
 	// 1. Fetch row by id.
