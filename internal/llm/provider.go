@@ -407,16 +407,32 @@ DO NOT skip entities or columns that the user explicitly described. If the user 
 
 ## Step 2: Write the plan
 
-Break into 5-12 implementation steps depending on complexity. Simple apps need 5, complex domain apps need 8-12.
+Each step is ONE small task that a single LLM call can handle. Keep steps small — max 2-3 tables per step.
 
-Rules:
-- Step 1: Design ALL tables with ALL columns, proper relationships (foreign keys, join tables). Be exhaustive — every field the user mentioned MUST appear here. Name every column explicitly.
-- Middle steps: Group by DOMAIN MODULE, not HTTP verb. Each step implements one business capability.
-- Entities with lifecycles MUST include a state_machine definition with transitions and guards — do NOT just use a status TEXT column
-- At least 3 steps MUST include non-CRUD routes: state transitions, computed endpoints, analytics, or validation guards.
-- Include steps for EVERY feature the user described — readiness tracking, analytics, study maps, dashboards, etc. Don't skip features.
-- Final step: Seed data that exercises the business logic (multiple user roles, various states, enough data for analytics to be meaningful).
-- Each step description must be SPECIFIC — name tables, columns, routes, and business logic.
+Scale steps to complexity:
+- Simple app (blog, todo): 5-8 steps
+- Medium app (e-commerce, LMS): 10-15 steps
+- Complex app (marketplace, SaaS): 15-20 steps
+
+Rules for breaking down steps:
+- ONE module per step — e.g., "Create users table + auth" is one step, "Create products + images + tags" is another
+- Each step creates 1-3 related tables AND their routes together
+- State machines go in the SAME step as the table they belong to
+- Dashboard/analytics steps are SEPARATE from data steps
+- Admin routes and user routes for the same tables can be in the same step
+- Final step: Seed data
+- Each step must be SPECIFIC — name the exact tables, columns, and routes
+
+BAD steps (too big, will fail):
+- "Create all 17 tables" ← too many tables in one call
+- "Generate all CRUD routes" ← too many routes in one call
+
+GOOD steps (small, focused):
+- "Create users table (id, email, password_hash, name, role, bio) with auth routes"
+- "Create products table (id, seller_id FK, name, price, status) + product_images + product_tags with CRUD and search"
+- "Create orders table with state machine (draft→placed→confirmed→shipped→delivered→cancelled) + order_items"
+- "Add buyer dashboard: order history, wishlist, recently viewed"
+- "Add admin dashboard: platform stats, user management, content moderation"
 
 ## Output
 
