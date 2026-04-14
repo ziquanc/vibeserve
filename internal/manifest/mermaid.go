@@ -33,6 +33,12 @@ func GenerateMermaidER(schemas []Schema) string {
 				marker = " UK"
 			}
 
+			// Show state machine states as a comment on the field.
+			if schema.StateMachine != nil && col.Name == schema.StateMachine.Field {
+				states := schema.StateMachine.ValidStates()
+				marker += fmt.Sprintf(" \"%s\"", strings.Join(states, "|"))
+			}
+
 			b.WriteString(fmt.Sprintf("        %s %s%s\n", col.Type, col.Name, marker))
 
 			// Collect relationship.

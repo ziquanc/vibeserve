@@ -75,3 +75,29 @@ func TestGenerateMermaidER_Empty(t *testing.T) {
 		t.Error("should return valid mermaid even with no schemas")
 	}
 }
+
+func TestGenerateMermaidER_WithStateMachine(t *testing.T) {
+	schemas := []Schema{{
+		Table: "orders",
+		Columns: []Column{
+			{Name: "id", Type: "INTEGER", Primary: true, Auto: true},
+			{Name: "status", Type: "TEXT"},
+			{Name: "total", Type: "REAL"},
+		},
+		StateMachine: &StateMachine{
+			Field:   "status",
+			Initial: "draft",
+			Transitions: []Transition{
+				{From: "draft", To: "submitted", Action: "submit"},
+				{From: "submitted", To: "approved", Action: "approve"},
+				{From: "submitted", To: "rejected", Action: "reject"},
+			},
+		},
+	}}
+
+	result := GenerateMermaidER(schemas)
+
+	if !strings.Contains(result, "draft|submitted|approved|rejected") {
+		t.Error("should show state machine states in the status column")
+	}
+}
