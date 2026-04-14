@@ -108,11 +108,21 @@ func (r *REPL) handleInput(input string) bool {
 	// Seed confirmation
 	if r.seedPending {
 		r.seedPending = false
-		lower := strings.ToLower(input)
-		if lower == "y" || lower == "yes" {
-			r.applySeedsWithProgress()
-		} else {
+		lower := strings.ToLower(strings.TrimSpace(input))
+
+		if lower == "y" || lower == "yes" || lower == "all" {
+			// Seed all tables
+			r.applySeedsWithProgress(r.pendingSeeds)
+		} else if lower == "n" || lower == "no" || lower == "" {
 			r.printInfo("Skipped seeding.")
+		} else {
+			// Parse table numbers: "1,3,5" or "1 3 5"
+			selected := r.parseSelectedSeeds(input)
+			if len(selected) > 0 {
+				r.applySeedsWithProgress(selected)
+			} else {
+				r.printInfo("No valid tables selected. Skipped seeding.")
+			}
 		}
 		r.printURLs()
 		return false
@@ -203,11 +213,11 @@ func (r *REPL) approveBlueprint() {
 	if result != nil && len(result.PendingSeeds) > 0 {
 		r.pendingSeeds = result.PendingSeeds
 		r.seedPending = true
-		totalRows := 0
-		for _, s := range result.PendingSeeds {
-			totalRows += len(s.Rows)
+		fmt.Printf("\n  %sSeed sample data?%s\n\n", yellow, reset)
+		for i, s := range result.PendingSeeds {
+			fmt.Printf("    %s%d.%s %s (%d rows)\n", cyan, i+1, reset, s.Table, len(s.Rows))
 		}
-		fmt.Printf("\n  %sSeed sample data? %d tables, %d rows [y/N]%s\n", yellow, len(result.PendingSeeds), totalRows, reset)
+		fmt.Printf("\n  %s[y] seed all  |  [1,3,5] select tables  |  [n] skip%s\n", dim, reset)
 	} else {
 		r.printURLs()
 	}
@@ -239,13 +249,39 @@ func (r *REPL) handleUndo() {
 	}
 }
 
-func (r *REPL) applySeedsWithProgress() {
-	for _, seed := range r.pendingSeeds {
+func (r *REPL) applySeedsWithProgress(seeds []manifest.Seed) {
+	for _, seed := range seeds {
 		fmt.Printf("  %s✓%s Seeding %s (%d rows)\n", green, reset, seed.Table, len(seed.Rows))
 		r.engine.ApplySeeds([]manifest.Seed{seed})
 	}
 	r.pendingSeeds = nil
 	r.printInfo("Data seeded.")
+}
+
+func (r *REPL) parseSelectedSeeds(input string) []manifest.Seed {
+	// Replace commas with spaces for uniform parsing
+	input = strings.ReplaceAll(input, ",", " ")
+	parts := strings.Fields(input)
+
+	var selected []manifest.Seed
+	seen := make(map[int]bool)
+
+	for _, p := range parts {
+		var num int
+		if _, err := fmt.Sscanf(p, "%d", &num); err != nil {
+			continue
+		}
+		if num < 1 || num > len(r.pendingSeeds) {
+			continue
+		}
+		if seen[num] {
+			continue
+		}
+		seen[num] = true
+		selected = append(selected, r.pendingSeeds[num-1])
+	}
+
+	return selected
 }
 
 // startProgress shows an animated progress indicator with streaming text.
