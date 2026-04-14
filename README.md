@@ -31,15 +31,16 @@ VibeServe is a single-binary CLI that turns natural language into a running API 
 ## Quick Start
 
 ```bash
-# 1. Install
+# Install
 curl -fsSL https://raw.githubusercontent.com/ziquanc/vibeserve/main/install.sh | sh
 
-# 2. Start (first run launches setup wizard — pick your AI provider)
-vibeserve
+# Option A: Start from a template (instant, no AI needed)
+vibeserve init --template ecommerce
+vibeserve up
 
-# 3. Describe your API
+# Option B: Describe what you want (AI-powered)
+vibeserve
 vibe> Create a task management API with users, projects, and tasks.
-      Tasks have priorities and due dates.
 ```
 
 That's it. Your API is running. Test it:
@@ -50,6 +51,16 @@ curl -X POST http://localhost:8080/tasks \
   -H "Content-Type: application/json" \
   -d '{"title":"Ship v1","priority":"high"}'
 ```
+
+### Starter Templates
+
+```bash
+vibeserve init --template blog        # Posts, comments, categories, tags
+vibeserve init --template ecommerce   # Products, orders, cart, coupons, reviews
+vibeserve init --template saas        # Teams, members, plans, subscriptions, billing
+```
+
+Each template includes auth, state machines, admin routes, and seed data. Modify with AI afterward: `vibeserve` → "add a newsletter feature".
 
 ## Three Ways to Build
 
@@ -154,9 +165,9 @@ Graduate from prototype to production-ready code:
 vibeserve export [flags] [output-dir]
 
 Flags:
-  --format    go | express | next  (default: go)
-  --db        sqlite | postgres    (default: sqlite)
-  --typescript                     Generate TypeScript interfaces
+  --format    go | express | next | fullstack  (default: go)
+  --db        sqlite | postgres                (default: sqlite)
+  --typescript                                 Generate TypeScript interfaces
 ```
 
 ### Go
@@ -235,10 +246,30 @@ Generates a full Next.js 15 admin panel with shadcn/ui:
 
 The frontend proxies `/api/*` to your VibeServe server — works in dev, configurable for production via `API_URL`.
 
+### Full-Stack (Express + Next.js)
+
+```bash
+vibeserve export --format fullstack ./my-app
+cd my-app && npm run install:all && npm run dev
+```
+
+Generates a monorepo with both backend and frontend:
+
+```
+my-app/
+  backend/     Express.js API
+  frontend/    Next.js admin panel
+  package.json npm workspaces + concurrently
+```
+
+One command starts both: `npm run dev`. Combine with `--db postgres --typescript` for production.
+
 ### What's included in every export
 
 | Feature | Description |
 |---------|-------------|
+| Auth | Auto-generated register, login, JWT + refresh tokens, /me, password reset |
+| State machines | Lifecycle workflows with role + condition guards (orders: draft→shipped→delivered) |
 | Soft delete | `created_at`, `updated_at`, `deleted_at` on every table |
 | Pagination | `LIMIT`/`OFFSET` with configurable defaults |
 | Search & filtering | `?sort=name&order=desc&search=term&status=active` |
@@ -278,10 +309,22 @@ vibeserve test --port 3000  # Test against a different port
   6 passed, 0 failed
 ```
 
+### Watch Mode
+
+Keep your exported project in sync as you iterate:
+
+```bash
+vibeserve watch --export ./my-api --format express --db postgres
+```
+
+Watches `.vibe/manifest.json`. When it changes (via chat, MCP, or direct edit), auto re-exports the project and generates PostgreSQL migration SQL in `migrations/`.
+
 ### Other Commands
 
 | Command | Description |
 |---------|-------------|
+| `vibeserve init --template <name>` | Start from a template (blog, ecommerce, saas) |
+| `vibeserve watch --export <dir>` | Server + auto re-export on manifest changes |
 | `vibeserve diff` | Show current API — tables, columns, routes |
 | `vibeserve routes` | Print route table |
 | `vibeserve undo` | Restore last database snapshot |
