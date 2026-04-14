@@ -293,6 +293,48 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 		}
 	}
 
+	// Auto-generate auth system if users table has password_hash.
+	if manifest.DetectAuth(newManifest.Schemas) {
+		authTables := manifest.GenerateAuthTables()
+		for _, at := range authTables {
+			exists := false
+			for _, s := range newManifest.Schemas {
+				if s.Table == at.Table {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				newManifest.Schemas = append(newManifest.Schemas, at)
+			}
+		}
+		authRoutes, authScripts := manifest.GenerateAuthRoutes("users")
+		for _, r := range authRoutes {
+			exists := false
+			for _, er := range newManifest.Routes {
+				if er.Method == r.Method && er.Path == r.Path {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				newManifest.Routes = append(newManifest.Routes, r)
+			}
+		}
+		for _, s := range authScripts {
+			exists := false
+			for _, es := range newManifest.Scripts {
+				if es.Name == s.Name {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				newManifest.Scripts = append(newManifest.Scripts, s)
+			}
+		}
+	}
+
 	// 4. Diff
 	changes := manifest.Diff(e.manifest, newManifest)
 	log.Printf("[engine] diff computed: %d changes", len(changes))

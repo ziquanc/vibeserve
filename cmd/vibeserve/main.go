@@ -642,7 +642,7 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 		}
 	}
 
-	rt := runtime.New(s, bus)
+	rt := runtime.New(s, bus, cfg.JWTSecret)
 
 	eng := engine.NewEngine(engine.EngineConfig{
 		Bus:      bus,
@@ -753,7 +753,8 @@ func runUp(manifestPath, host string, port int) error {
 		log.Printf("Route registered: %s %s → %s", r.Method, r.Path, r.Script)
 	}
 
-	rt := runtime.New(s, bus)
+	cfg, _ := config.Load(".vibe/config.yaml")
+	rt := runtime.New(s, bus, cfg.JWTSecret)
 
 	eng := engine.NewEngine(engine.EngineConfig{
 		Bus:      bus,
@@ -873,7 +874,8 @@ func runWatch(manifestPath, exportDir, format, dbType string, typescript bool, h
 		trie.Insert(r.Method, r.Path, r.Script)
 	}
 
-	rt := runtime.New(s, bus)
+	cfg, _ := config.Load(".vibe/config.yaml")
+	rt := runtime.New(s, bus, cfg.JWTSecret)
 	eng := engine.NewEngine(engine.EngineConfig{
 		Bus: bus, Store: s, Trie: trie, Scripts: scripts,
 		Manifest: m, VibeDir: ".vibe",
