@@ -101,6 +101,53 @@ func validateStructural(m *Manifest) error {
 				return fmt.Errorf("invalid column type %q for %s.%s", c.Type, s.Table, c.Name)
 			}
 		}
+
+		// Validate state machine
+		if s.StateMachine != nil {
+			sm := s.StateMachine
+			if sm.Field == "" {
+				return fmt.Errorf("state_machine.field is required in table %q", s.Table)
+			}
+			if sm.Initial == "" {
+				return fmt.Errorf("state_machine.initial is required in table %q", s.Table)
+			}
+			// Check field exists in columns
+			fieldExists := false
+			for _, c := range s.Columns {
+				if c.Name == sm.Field {
+					fieldExists = true
+					break
+				}
+			}
+			if !fieldExists {
+				return fmt.Errorf("state_machine.field %q not found in columns of table %q", sm.Field, s.Table)
+			}
+			// Check transitions
+			if len(sm.Transitions) == 0 {
+				return fmt.Errorf("state_machine must have at least one transition in table %q", s.Table)
+			}
+			actionNames := make(map[string]bool)
+			for _, t := range sm.Transitions {
+				if t.From == "" || t.To == "" || t.Action == "" {
+					return fmt.Errorf("transition from/to/action are all required in table %q", s.Table)
+				}
+				if actionNames[t.Action] {
+					return fmt.Errorf("duplicate transition action %q in table %q", t.Action, s.Table)
+				}
+				actionNames[t.Action] = true
+			}
+			// Check initial state has at least one outgoing transition
+			hasInitialTransition := false
+			for _, t := range sm.Transitions {
+				if t.From == sm.Initial {
+					hasInitialTransition = true
+					break
+				}
+			}
+			if !hasInitialTransition {
+				return fmt.Errorf("initial state %q has no outgoing transitions in table %q", sm.Initial, s.Table)
+			}
+		}
 	}
 
 	for _, r := range m.Routes {
