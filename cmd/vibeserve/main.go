@@ -182,7 +182,7 @@ func exportCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing output directory")
 	cmd.Flags().BoolVar(&ai, "ai", false, "Use LLM to translate complex Tengo logic")
-	cmd.Flags().StringVar(&format, "format", "go", "Export format: go, express, or next")
+	cmd.Flags().StringVar(&format, "format", "go", "Export format: go, express, next, or fullstack")
 	cmd.Flags().StringVar(&db, "db", "", "Database type: sqlite (default) or postgres")
 	cmd.Flags().BoolVar(&typescript, "typescript", false, "Generate TypeScript type definitions")
 
@@ -342,10 +342,10 @@ func runExport(manifestPath string, args []string, force, ai bool, format, db st
 
 	// Validate format
 	switch format {
-	case "go", "express", "next":
+	case "go", "express", "next", "fullstack":
 		// valid
 	default:
-		return fmt.Errorf("unsupported format %q (supported: go, express, next)", format)
+		return fmt.Errorf("unsupported format %q (supported: go, express, next, fullstack)", format)
 	}
 
 	fmt.Printf("Exporting to %s (format: %s)...\n", outDir, format)
@@ -366,6 +366,8 @@ func runExport(manifestPath string, args []string, force, ai bool, format, db st
 		exportErr = exp.RunExpress()
 	case "next":
 		exportErr = exp.RunNext()
+	case "fullstack":
+		exportErr = exp.RunFullstack()
 	default:
 		exportErr = exp.Run()
 	}
@@ -415,6 +417,16 @@ func runExport(manifestPath string, args []string, force, ai bool, format, db st
 		fmt.Println("    npm run dev")
 		fmt.Println()
 		fmt.Println("  Make sure your VibeServe server is running at localhost:8080")
+	case "fullstack":
+		fmt.Printf("  Your full-stack app is ready at: ./%s\n", outDir)
+		fmt.Println()
+		fmt.Printf("    %s/backend/   Express.js API\n", outDir)
+		fmt.Printf("    %s/frontend/  Next.js admin panel\n", outDir)
+		fmt.Println()
+		fmt.Println("  To start:")
+		fmt.Printf("    cd %s\n", outDir)
+		fmt.Println("    npm run install:all")
+		fmt.Println("    npm run dev")
 	default:
 		fmt.Printf("  Your production Go server is ready at: ./%s\n", outDir)
 		fmt.Println()
@@ -831,7 +843,7 @@ func watchCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
 	cmd.Flags().StringVar(&exportDir, "export", "", "Path to exported project directory (required)")
-	cmd.Flags().StringVar(&format, "format", "express", "Export format: go, express, or next")
+	cmd.Flags().StringVar(&format, "format", "express", "Export format: go, express, next, or fullstack")
 	cmd.Flags().StringVar(&db, "db", "sqlite", "Database type: sqlite or postgres")
 	cmd.Flags().BoolVar(&typescript, "typescript", false, "Generate TypeScript type definitions")
 	cmd.Flags().IntVarP(&port, "port", "p", 8080, "Server port")

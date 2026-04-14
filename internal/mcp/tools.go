@@ -235,8 +235,8 @@ func (srv *Server) handleExportProject(ctx context.Context, req mcplib.CallToolR
 	if format == "" {
 		format = "go"
 	}
-	if format != "go" && format != "express" && format != "next" {
-		return errorResult(fmt.Sprintf("Unsupported format %q. Use 'go', 'express', or 'next'.", format)), nil
+	if format != "go" && format != "express" && format != "next" && format != "fullstack" {
+		return errorResult(fmt.Sprintf("Unsupported format %q. Use 'go', 'express', 'next', or 'fullstack'.", format)), nil
 	}
 
 	dbType, _ := args["db"].(string)
@@ -261,6 +261,8 @@ func (srv *Server) handleExportProject(ctx context.Context, req mcplib.CallToolR
 		exportErr = exp.RunExpress()
 	case "next":
 		exportErr = exp.RunNext()
+	case "fullstack":
+		exportErr = exp.RunFullstack()
 	default:
 		exportErr = exp.Run()
 	}
