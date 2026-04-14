@@ -404,11 +404,13 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 	}
 	log.Printf("[engine] manifest saved, %d total routes now active", len(newManifest.Routes))
 
-	// Update conversation history and persist to disk
-	manifestJSON, _ := json.Marshal(newManifest)
+	// Update conversation history with compact summary (not full manifest JSON).
+	// The LLM already sees the current manifest in the system prompt —
+	// history only needs to capture WHAT changed, not the full state.
+	changeSummary := compactChangeSummary(result.Changes)
 	e.history = append(e.history,
 		llm.Message{Role: "user", Content: prompt},
-		llm.Message{Role: "assistant", Content: string(manifestJSON)},
+		llm.Message{Role: "assistant", Content: changeSummary},
 	)
 	if err := e.saveHistory(); err != nil {
 		log.Printf("[engine] failed to save history: %v", err)
@@ -474,6 +476,54 @@ func (e *Engine) saveManifest() error {
 	}
 	path := filepath.Join(e.vibeDir, "manifest.json")
 	return os.WriteFile(path, data, 0o644)
+}
+
+// compactChangeSummary creates a concise text summary of changes for history.
+// This is much smaller than the full manifest JSON (~50 tokens vs ~5000).
+func compactChangeSummary(changes []manifest.Change) string {
+	if len(changes) == 0 {
+		return "No changes applied."
+	}
+
+	var tables, columns, routes []string
+	for _, c := range changes {
+		switch c.Type {
+		case manifest.ChangeAddTable:
+			if c.Schema != nil {
+				cols := make([]string, 0, len(c.Schema.Columns))
+				for _, col := range c.Schema.Columns {
+					cols = append(cols, col.Name)
+				}
+				tables = append(tables, fmt.Sprintf("%s (%s)", c.Schema.Table, strings.Join(cols, ", ")))
+			}
+		case manifest.ChangeAddColumn:
+			columns = append(columns, fmt.Sprintf("%s.%s", c.Table, c.Column.Name))
+		case manifest.ChangeAddRoute:
+			if c.Route != nil {
+				routes = append(routes, fmt.Sprintf("%s %s", c.Route.Method, c.Route.Path))
+			}
+		}
+	}
+
+	var parts []string
+	if len(tables) > 0 {
+		parts = append(parts, fmt.Sprintf("Created tables: %s", strings.Join(tables, "; ")))
+	}
+	if len(columns) > 0 {
+		parts = append(parts, fmt.Sprintf("Added columns: %s", strings.Join(columns, ", ")))
+	}
+	if len(routes) > 0 {
+		if len(routes) > 5 {
+			parts = append(parts, fmt.Sprintf("Added %d routes including %s", len(routes), strings.Join(routes[:3], ", ")))
+		} else {
+			parts = append(parts, fmt.Sprintf("Added routes: %s", strings.Join(routes, ", ")))
+		}
+	}
+
+	if len(parts) == 0 {
+		return fmt.Sprintf("Applied %d changes.", len(changes))
+	}
+	return strings.Join(parts, ". ") + "."
 }
 
 // saveHistory writes conversation history to .vibe/history.json.
