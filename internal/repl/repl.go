@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,13 @@ func (r *REPL) OnChunk(text string) {
 
 // Run starts the REPL. Blocks until the user quits.
 func (r *REPL) Run() error {
+	// Redirect Go log output to file — prevent debug logs from mixing with REPL output.
+	logFile, err := os.OpenFile(".vibe/vibeserve.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err == nil {
+		log.SetOutput(logFile)
+		defer logFile.Close()
+	}
+
 	r.printHeader()
 
 	for {
@@ -197,10 +205,50 @@ func (r *REPL) handlePrompt(input string) {
 }
 
 func (r *REPL) approveBlueprint() {
-	done := r.startProgress("Generating API")
+	// Subscribe to step events for live progress
+	doneCh := make(chan struct{})
+	r.bus.Subscribe(engine.EventStepStarted, func(e engine.Event) {
+		info, ok := e.Data.(engine.StepInfo)
+		if !ok {
+			return
+		}
+		select {
+		case <-doneCh:
+			return
+		default:
+			// Truncate long descriptions
+			desc := info.Description
+			if len(desc) > 80 {
+				desc = desc[:77] + "..."
+			}
+			fmt.Printf("\r\033[K  %s⠹ Step %d/%d:%s %s", purple, info.Index, info.Total, reset, desc)
+		}
+	})
+	r.bus.Subscribe(engine.EventStepCompleted, func(e engine.Event) {
+		info, ok := e.Data.(engine.StepInfo)
+		if !ok {
+			return
+		}
+		select {
+		case <-doneCh:
+			return
+		default:
+			desc := info.Description
+			if len(desc) > 80 {
+				desc = desc[:77] + "..."
+			}
+			if len(info.Changes) > 0 && strings.HasPrefix(info.Changes[0], "failed") {
+				fmt.Printf("\r\033[K  %s✗ Step %d/%d:%s %s — %s\n", red, info.Index, info.Total, reset, desc, info.Changes[0])
+			} else {
+				fmt.Printf("\r\033[K  %s✓ Step %d/%d:%s %s (%d changes)\n", green, info.Index, info.Total, reset, desc, len(info.Changes))
+			}
+		}
+	})
 
+	fmt.Println()
 	result, err := r.engine.ApproveBlueprint(r.ctx)
-	done()
+	close(doneCh) // stop event handlers
+	fmt.Print("\r\033[K") // clear any residual line
 
 	if err != nil {
 		r.printError(err.Error())

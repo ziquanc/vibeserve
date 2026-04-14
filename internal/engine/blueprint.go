@@ -126,29 +126,16 @@ func (e *Engine) ApproveBlueprint(ctx context.Context) (*ApplyResult, error) {
 		e.bus.Publish(Event{Type: EventBlueprintApproved, Data: *bp})
 	}
 
-	// If we have a complete manifest (with routes + scripts), apply directly.
+	// Always use step-by-step execution for better UX and error recovery.
+	// Each step is a separate LLM call — smaller, faster, retryable.
+	if len(bp.Steps) > 0 {
+		return e.executePlanSteps(ctx, bp.Steps, bp.Prompt)
+	}
+
+	// If we have a complete manifest (direct mode), apply it.
 	if bp.Manifest != nil && len(bp.Manifest.Routes) > 0 {
 		result := &ApplyResult{}
 		return e.applyManifest(ctx, bp.Prompt, bp.Manifest, result)
-	}
-
-	// Schema preview was approved — now generate the FULL manifest.
-	// This does a single LLM call to produce routes, scripts, and seeds.
-	if bp.Prompt != "" {
-		if e.bus != nil {
-			e.bus.Publish(Event{Type: EventLLMRequestStarted, Data: "Generating full API..."})
-		}
-		newManifest, err := e.provider.Generate(ctx, e.manifest, bp.Prompt, e.history)
-		if err != nil {
-			return nil, fmt.Errorf("full generation failed: %w", err)
-		}
-		result := &ApplyResult{}
-		return e.applyManifest(ctx, bp.Prompt, newManifest, result)
-	}
-
-	// Legacy: plan-mode step execution.
-	if len(bp.Steps) > 0 {
-		return e.executePlanSteps(ctx, bp.Steps, bp.Prompt)
 	}
 
 	return nil, fmt.Errorf("blueprint has neither manifest nor steps")
@@ -195,15 +182,29 @@ func (e *Engine) executePlanSteps(ctx context.Context, steps []string, prompt st
 		// Apply the merged manifest
 		stepResult, err := e.applyManifest(ctx, step, newManifest, &ApplyResult{})
 		if err != nil {
-			log.Printf("[engine] step %d failed to apply: %v", stepNum, err)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Step %d failed: %v", stepNum, err))
+			log.Printf("[engine] step %d failed: %v — retrying with fix", stepNum, err)
 			if e.bus != nil {
 				e.bus.Publish(Event{Type: EventStepCompleted, Data: StepInfo{
 					Index: stepNum, Total: len(steps), Description: step,
-					Changes: []string{fmt.Sprintf("failed: %v", err)},
+					Changes: []string{fmt.Sprintf("failed: %v — retrying...", err)},
 				}})
 			}
-			continue
+
+			// Retry: ask LLM to fix the error
+			retryPrompt := fmt.Sprintf("Step %d failed with error: %v\n\nFix this error and output the corrected complete manifest JSON. The issue was in step: %s", stepNum, err, step)
+			retryManifest, retryErr := e.provider.Generate(ctx, currentManifest, retryPrompt, e.history)
+			if retryErr != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Step %d failed after retry: %v", stepNum, err))
+				continue
+			}
+			if currentManifest != nil {
+				retryManifest = mergeManifests(currentManifest, retryManifest)
+			}
+			stepResult, err = e.applyManifest(ctx, step, retryManifest, &ApplyResult{})
+			if err != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Step %d failed after retry: %v", stepNum, err))
+				continue
+			}
 		}
 
 		currentManifest = stepResult.Manifest
