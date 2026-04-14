@@ -360,7 +360,16 @@ if status == undefined {
 	b.WriteString("- PUT /users/me — update current user profile\n")
 	b.WriteString("- GET /admin/users — admin list all users\n")
 	b.WriteString("- PUT /admin/users/:id — admin update user\n\n")
-	b.WriteString("Routes can be namespaced (e.g. /admin/questions, /student/tests) but the underlying table MUST be accessible.\n")
+	b.WriteString("Routes can be namespaced (e.g. /admin/questions, /student/tests) but the underlying table MUST be accessible.\n\n")
+
+	b.WriteString("## Admin Coverage\n\n")
+	b.WriteString("When the app has an admin role, the admin MUST be able to:\n")
+	b.WriteString("- Manage ALL entities — list, view, edit, delete any record\n")
+	b.WriteString("- Manage users — list users, view user details, activate/deactivate accounts\n")
+	b.WriteString("- View platform analytics — aggregated stats, usage metrics, activity overview\n")
+	b.WriteString("- Access a dashboard — summary of key metrics (total users, content counts, recent activity)\n\n")
+	b.WriteString("Admin routes should be prefixed with /admin/ and require admin role.\n")
+	b.WriteString("Do NOT skip admin routes for any table. If a table exists, admin can manage it.\n")
 
 	return b.String()
 }
