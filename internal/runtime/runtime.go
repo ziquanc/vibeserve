@@ -26,13 +26,19 @@ type ResponseCapture struct {
 
 // Runtime executes Tengo scripts with the Vibe Standard Library injected.
 type Runtime struct {
-	store engine.DataStore
-	bus   *engine.Bus
+	store     engine.DataStore
+	bus       *engine.Bus
+	jwtSecret string
 }
 
 // New creates a Runtime backed by the given DataStore and event Bus.
-func New(store engine.DataStore, bus *engine.Bus) *Runtime {
-	return &Runtime{store: store, bus: bus}
+// An optional jwtSecret enables JWT-based auth token generation and verification.
+func New(store engine.DataStore, bus *engine.Bus, jwtSecret ...string) *Runtime {
+	secret := ""
+	if len(jwtSecret) > 0 {
+		secret = jwtSecret[0]
+	}
+	return &Runtime{store: store, bus: bus, jwtSecret: secret}
 }
 
 // Execute runs code with the given RequestContext and returns the captured response.
@@ -47,7 +53,7 @@ func (r *Runtime) Execute(code string, rc *RequestContext) (statusCode int, body
 	if addErr := script.Add("db", newDBModule(r.store)); addErr != nil {
 		return 0, nil, nil, fmt.Errorf("add db module: %w", addErr)
 	}
-	if addErr := script.Add("request", newRequestModule(rc)); addErr != nil {
+	if addErr := script.Add("request", newRequestModule(rc, r.jwtSecret)); addErr != nil {
 		return 0, nil, nil, fmt.Errorf("add request module: %w", addErr)
 	}
 	if addErr := script.Add("response", newResponseModule(capture)); addErr != nil {
@@ -61,6 +67,9 @@ func (r *Runtime) Execute(code string, rc *RequestContext) (statusCode int, body
 	}
 	if addErr := script.Add("log", newLogModule(r.bus)); addErr != nil {
 		return 0, nil, nil, fmt.Errorf("add log module: %w", addErr)
+	}
+	if addErr := script.Add("auth", newAuthModule(r.jwtSecret, r.store)); addErr != nil {
+		return 0, nil, nil, fmt.Errorf("add auth module: %w", addErr)
 	}
 
 	if _, runErr := script.Run(); runErr != nil {

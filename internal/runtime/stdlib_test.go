@@ -16,11 +16,12 @@ func TestStdlibModulesAreImmutableMaps(t *testing.T) {
 
 	modules := map[string]tengo.Object{
 		"db":       newDBModule(store),
-		"request":  newRequestModule(rc),
+		"request":  newRequestModule(rc, ""),
 		"response": newResponseModule(capture),
 		"date":     newDateModule(),
 		"crypto":   newCryptoModule(),
 		"log":      newLogModule(bus),
+		"auth":     newAuthModule("test-secret", store),
 	}
 
 	for name, mod := range modules {
@@ -46,7 +47,7 @@ func TestDBModuleHasExpectedKeys(t *testing.T) {
 // TestRequestModuleHasExpectedKeys checks that the request module exposes the required functions.
 func TestRequestModuleHasExpectedKeys(t *testing.T) {
 	_, _, rc, _ := newTestDeps(t)
-	mod := newRequestModule(rc).(*tengo.ImmutableMap)
+	mod := newRequestModule(rc, "").(*tengo.ImmutableMap)
 
 	requiredKeys := []string{"param", "query", "body", "header", "method", "auth"}
 	for _, k := range requiredKeys {
@@ -86,7 +87,7 @@ func TestDateModuleHasExpectedKeys(t *testing.T) {
 func TestCryptoModuleHasExpectedKeys(t *testing.T) {
 	mod := newCryptoModule().(*tengo.ImmutableMap)
 
-	requiredKeys := []string{"hash", "uuid", "random"}
+	requiredKeys := []string{"hash", "uuid", "random", "hash_password", "verify_password"}
 	for _, k := range requiredKeys {
 		if _, ok := mod.Value[k]; !ok {
 			t.Errorf("crypto module missing key %q", k)
@@ -103,6 +104,19 @@ func TestLogModuleHasExpectedKeys(t *testing.T) {
 	for _, k := range requiredKeys {
 		if _, ok := mod.Value[k]; !ok {
 			t.Errorf("log module missing key %q", k)
+		}
+	}
+}
+
+// TestAuthModuleHasExpectedKeys checks auth module keys.
+func TestAuthModuleHasExpectedKeys(t *testing.T) {
+	store, _, _, _ := newTestDeps(t)
+	mod := newAuthModule("test-secret", store).(*tengo.ImmutableMap)
+
+	requiredKeys := []string{"generate_tokens"}
+	for _, k := range requiredKeys {
+		if _, ok := mod.Value[k]; !ok {
+			t.Errorf("auth module missing key %q", k)
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	mathrand "math/rand"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	tengo "github.com/d5/tengo/v2"
 	"github.com/google/uuid"
+	"github.com/vibeserve/vibeserve/internal/auth"
 	"github.com/vibeserve/vibeserve/internal/engine"
 )
 
@@ -242,7 +244,7 @@ func newDBModule(store engine.DataStore) tengo.Object {
 
 // ── request module ────────────────────────────────────────────────────────────
 
-func newRequestModule(rc *RequestContext) tengo.Object {
+func newRequestModule(rc *RequestContext, jwtSecret string) tengo.Object {
 	return &tengo.ImmutableMap{Value: map[string]tengo.Object{
 
 		"param": &tengo.UserFunction{
@@ -345,20 +347,35 @@ func newRequestModule(rc *RequestContext) tengo.Object {
 					return tengo.UndefinedValue, nil
 				}
 				authHeader, exists := rc.Headers["authorization"]
-				if !exists {
+				if !exists || authHeader == "" {
 					return tengo.UndefinedValue, nil
 				}
-				const prefix = "Bearer "
-				if !strings.HasPrefix(authHeader, prefix) {
-					return tengo.UndefinedValue, nil
-				}
-				token := authHeader[len(prefix):]
 
-				// Try to base64-decode and parse as JSON
-				decoded, err := base64.StdEncoding.DecodeString(token)
+				// Extract Bearer token
+				parts := strings.SplitN(authHeader, " ", 2)
+				if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+					return tengo.UndefinedValue, nil
+				}
+				tokenString := parts[1]
+
+				// If we have a JWT secret, verify properly
+				if jwtSecret != "" {
+					claims, err := auth.VerifyAccessToken(jwtSecret, tokenString)
+					if err != nil {
+						return tengo.UndefinedValue, nil // Invalid token -> undefined (not error)
+					}
+					return tengo.FromInterface(map[string]interface{}{
+						"user_id": claims.UserID,
+						"role":    claims.Role,
+						"email":   claims.Email,
+					})
+				}
+
+				// Fallback: base64 decode (for backward compatibility)
+				decoded, err := base64.StdEncoding.DecodeString(tokenString)
 				if err != nil {
 					// Try URL-safe base64
-					decoded, err = base64.RawURLEncoding.DecodeString(token)
+					decoded, err = base64.RawURLEncoding.DecodeString(tokenString)
 				}
 				if err == nil {
 					var payload map[string]any
@@ -372,7 +389,7 @@ func newRequestModule(rc *RequestContext) tengo.Object {
 				}
 
 				// On failure return {"raw_token": TOKEN}
-				obj, err := tengo.FromInterface(map[string]any{"raw_token": token})
+				obj, err := tengo.FromInterface(map[string]any{"raw_token": tokenString})
 				if err != nil {
 					return nil, err
 				}
@@ -643,6 +660,46 @@ func newCryptoModule() tengo.Object {
 				return intObj(int64(min) + n.Int64()), nil
 			},
 		},
+
+		"hash_password": &tengo.UserFunction{
+			Name: "hash_password",
+			Value: func(args ...tengo.Object) (tengo.Object, error) {
+				if len(args) != 1 {
+					return nil, tengo.ErrWrongNumArguments
+				}
+				plain, ok := tengo.ToString(args[0])
+				if !ok {
+					return nil, tengo.ErrInvalidArgumentType{Name: "password", Expected: "string", Found: args[0].TypeName()}
+				}
+				hashed, err := auth.HashPassword(plain)
+				if err != nil {
+					return tengo.FromInterface(map[string]interface{}{"error": err.Error()})
+				}
+				return &tengo.String{Value: hashed}, nil
+			},
+		},
+
+		"verify_password": &tengo.UserFunction{
+			Name: "verify_password",
+			Value: func(args ...tengo.Object) (tengo.Object, error) {
+				if len(args) != 2 {
+					return nil, tengo.ErrWrongNumArguments
+				}
+				plain, ok := tengo.ToString(args[0])
+				if !ok {
+					return nil, tengo.ErrInvalidArgumentType{Name: "password", Expected: "string", Found: args[0].TypeName()}
+				}
+				hash, ok := tengo.ToString(args[1])
+				if !ok {
+					return nil, tengo.ErrInvalidArgumentType{Name: "hash", Expected: "string", Found: args[1].TypeName()}
+				}
+				result := auth.VerifyPassword(plain, hash)
+				if result {
+					return tengo.TrueValue, nil
+				}
+				return tengo.FalseValue, nil
+			},
+		},
 	}}
 }
 
@@ -671,5 +728,60 @@ func newLogModule(bus *engine.Bus) tengo.Object {
 		"warn":  &tengo.UserFunction{Name: "warn", Value: emitLog("warn")},
 		// "error" is a Tengo keyword; use "err" in scripts: log.err(msg)
 		"err": &tengo.UserFunction{Name: "err", Value: emitLog("error")},
+	}}
+}
+
+// ── auth module ──────────────────────────────────────────────────────────────
+
+func newAuthModule(jwtSecret string, store engine.DataStore) tengo.Object {
+	return &tengo.ImmutableMap{Value: map[string]tengo.Object{
+
+		"generate_tokens": &tengo.UserFunction{
+			Name: "generate_tokens",
+			Value: func(args ...tengo.Object) (tengo.Object, error) {
+				if len(args) != 3 {
+					return nil, tengo.ErrWrongNumArguments
+				}
+				userID, ok := tengo.ToInt64(args[0])
+				if !ok {
+					return nil, tengo.ErrInvalidArgumentType{Name: "user_id", Expected: "int", Found: args[0].TypeName()}
+				}
+				role, ok := tengo.ToString(args[1])
+				if !ok {
+					return nil, tengo.ErrInvalidArgumentType{Name: "role", Expected: "string", Found: args[1].TypeName()}
+				}
+				email, ok := tengo.ToString(args[2])
+				if !ok {
+					return nil, tengo.ErrInvalidArgumentType{Name: "email", Expected: "string", Found: args[2].TypeName()}
+				}
+
+				// Generate access token (15 min)
+				accessToken, err := auth.GenerateAccessToken(jwtSecret, userID, role, email, 15*time.Minute)
+				if err != nil {
+					return tengo.FromInterface(map[string]interface{}{"error": err.Error()})
+				}
+
+				// Generate refresh token
+				refreshToken := auth.GenerateRefreshToken()
+
+				// Store refresh token in DB (7 day expiry)
+				expiresAt := time.Now().Add(7 * 24 * time.Hour).Format(time.RFC3339)
+				_, insertErr := store.Insert("refresh_tokens", map[string]any{
+					"user_id":    userID,
+					"token":      refreshToken,
+					"expires_at": expiresAt,
+					"revoked":    false,
+				})
+				if insertErr != nil {
+					// Log but don't fail — the access token is still valid
+					log.Printf("[auth] failed to store refresh token: %v", insertErr)
+				}
+
+				return tengo.FromInterface(map[string]interface{}{
+					"access_token":  accessToken,
+					"refresh_token": refreshToken,
+				})
+			},
+		},
 	}}
 }
