@@ -289,15 +289,16 @@ func (e *Engine) refinePlan(ctx context.Context, feedback string) (*BlueprintInf
 		stepsText.WriteString(fmt.Sprintf("%d. %s\n", i+1, s))
 	}
 
-	// Ask LLM for modifications based on feedback
+	// Ask LLM for the COMPLETE updated plan incorporating feedback.
 	directPrompt := fmt.Sprintf(`The user is building: "%s"
 
-These steps are ALREADY planned:
+Current plan:
 %s
-The user says: "%s"
+User feedback: "%s"
 
-If the feedback asks for changes (rename, add, remove, modify), output a JSON array of ALL steps (existing + modified).
-If the feedback is just approval with minor tweaks, apply the tweaks and output all steps.
+Apply the feedback and output the COMPLETE updated plan as a JSON array.
+Include ALL steps — both existing (modified if needed) and new ones.
+Do NOT output only the new steps — output the ENTIRE plan from step 1.
 Output ONLY a JSON array of step descriptions, no other text.`, originalPrompt, stepsText.String(), feedback)
 
 	planManifest, planErr := e.provider.Generate(ctx, e.manifest, directPrompt, nil)
@@ -342,15 +343,19 @@ Output ONLY a JSON array of step descriptions, no other text.`, originalPrompt, 
 		return nil, fmt.Errorf("refinement produced no new steps")
 	}
 
-	// Merge: original steps + new steps from feedback
-	mergedSteps := make([]string, 0, len(oldSteps)+len(steps))
-	mergedSteps = append(mergedSteps, oldSteps...)
-	mergedSteps = append(mergedSteps, steps...)
+	// Replace steps entirely — the LLM returns the complete updated plan.
+	// Also regenerate the ER diagram from the new steps.
+	var diagram string
+	schemas := extractSchemasFromSteps(steps)
+	if len(schemas) > 0 {
+		diagram = manifest.GenerateMermaidER(schemas)
+	}
 
 	bp := &BlueprintInfo{
-		Steps:   mergedSteps,
-		Prompt:  originalPrompt,
-		Summary: fmt.Sprintf("Refined plan: %d steps (%d original + %d new)", len(mergedSteps), len(oldSteps), len(steps)),
+		Steps:   steps,
+		Prompt:  originalPrompt + "\n\nRefinement: " + feedback,
+		Summary: fmt.Sprintf("Refined plan: %d steps", len(steps)),
+		Diagram: diagram,
 	}
 	e.pendingBlueprint = bp
 
