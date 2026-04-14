@@ -55,6 +55,23 @@ A manifest is a JSON object with these fields:
         {"name": "birth_date", "type": "DATE"},
         {"name": "category_id", "type": "INTEGER", "references": "categories.id"}
       ]
+    },
+    {
+      "table": "orders",
+      "columns": [
+        {"name": "id", "type": "INTEGER", "primary": true, "auto": true},
+        {"name": "user_id", "type": "INTEGER", "references": "users.id"},
+        {"name": "total", "type": "REAL"},
+        {"name": "status", "type": "TEXT", "default": "draft"}
+      ],
+      "state_machine": {
+        "field": "status",
+        "initial": "draft",
+        "transitions": [
+          {"from": "draft", "to": "submitted", "action": "submit", "guard": {"condition": "total > 0"}},
+          {"from": "submitted", "to": "approved", "action": "approve", "guard": {"role": "admin"}}
+        ]
+      }
     }
   ],
   "routes": [
@@ -295,6 +312,27 @@ if status == undefined {
 	b.WriteString("When the user mentions 'dashboard' or 'analytics', create computed GET endpoints that query existing tables — do NOT create a 'dashboards' table.\n")
 	b.WriteString("When the user mentions 'readiness' or 'mastery', create a scores/tracking table (readiness_scores, topic_mastery) — these are entities that store computed results.\n\n")
 
+	b.WriteString("## State Machines\n\n")
+	b.WriteString("When an entity has a LIFECYCLE with distinct states, define a state_machine on the schema.\n")
+	b.WriteString("DO NOT use state machines for simple boolean flags (active/inactive). Use them for multi-step workflows.\n\n")
+	b.WriteString("Examples:\n")
+	b.WriteString("- Orders: draft → submitted → approved → shipped → delivered (with rejected branch)\n")
+	b.WriteString("- Articles: draft → review → published → archived\n")
+	b.WriteString("- Tickets: open → in_progress → resolved → closed\n")
+	b.WriteString("- Applications: submitted → under_review → accepted/rejected\n\n")
+	b.WriteString("Format — add state_machine to the schema object:\n")
+	b.WriteString("\"state_machine\": {\"field\": \"status\", \"initial\": \"draft\", \"transitions\": [\n")
+	b.WriteString("  {\"from\": \"draft\", \"to\": \"submitted\", \"action\": \"submit\", \"guard\": {\"condition\": \"total > 0\"}},\n")
+	b.WriteString("  {\"from\": \"submitted\", \"to\": \"approved\", \"action\": \"approve\", \"guard\": {\"role\": \"admin\"}},\n")
+	b.WriteString("  {\"from\": \"submitted\", \"to\": \"rejected\", \"action\": \"reject\", \"guard\": {\"role\": \"admin\"}}\n")
+	b.WriteString("]}\n\n")
+	b.WriteString("Guard types:\n")
+	b.WriteString("- role: require specific user role (\"admin\", \"manager\", \"reviewer\")\n")
+	b.WriteString("- condition: field condition on the row (\"total > 0\", \"items_count > 0\")\n\n")
+	b.WriteString("IMPORTANT: Transition routes are AUTO-GENERATED from the state_machine definition.\n")
+	b.WriteString("Do NOT manually create routes like POST /orders/:id/approve — they are created automatically.\n")
+	b.WriteString("Just define the state_machine on the schema and VibeServe handles the rest.\n\n")
+
 	b.WriteString("## Architectural Heuristics\n\n")
 	b.WriteString("When designing an API, think beyond simple CRUD. For every request, consider:\n\n")
 	b.WriteString("1. STATE TRANSITIONS: If an entity has a lifecycle (draft→active→closed),\n")
@@ -331,6 +369,7 @@ Fully analyze the user's request. Identify:
 - Distinguish entities (nouns that store data) from actions (verbs) and views (computed reads)
 - ALL relationships between entities (1:1, 1:N, N:M with join tables)
 - ALL columns for each entity — be exhaustive. Include type fields, status fields, metadata, foreign keys
+- Entity lifecycles that need STATE MACHINES (orders: draft→submitted→approved, tickets: open→resolved→closed)
 - Entity lifecycles (status transitions like draft→active→completed)
 - Computed data (aggregations, analytics, dashboards, rankings, progress tracking)
 - Business rules and validation guards
@@ -345,6 +384,7 @@ Break into 5-12 implementation steps depending on complexity. Simple apps need 5
 Rules:
 - Step 1: Design ALL tables with ALL columns, proper relationships (foreign keys, join tables). Be exhaustive — every field the user mentioned MUST appear here. Name every column explicitly.
 - Middle steps: Group by DOMAIN MODULE, not HTTP verb. Each step implements one business capability.
+- Entities with lifecycles MUST include a state_machine definition with transitions and guards — do NOT just use a status TEXT column
 - At least 3 steps MUST include non-CRUD routes: state transitions, computed endpoints, analytics, or validation guards.
 - Include steps for EVERY feature the user described — readiness tracking, analytics, study maps, dashboards, etc. Don't skip features.
 - Final step: Seed data that exercises the business logic (multiple user roles, various states, enough data for analytics to be meaningful).
