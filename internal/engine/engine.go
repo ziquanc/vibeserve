@@ -260,6 +260,39 @@ func (e *Engine) applyManifest(ctx context.Context, prompt string, newManifest *
 	}
 	log.Printf("[engine] manifest validated OK")
 
+	// Generate state machine transition routes.
+	// These are injected into the manifest before diffing so they appear as changes.
+	for _, schema := range newManifest.Schemas {
+		if schema.StateMachine == nil {
+			continue
+		}
+		smRoutes, smScripts := manifest.GenerateTransitionRoutes(schema.Table, schema.StateMachine)
+		for _, r := range smRoutes {
+			exists := false
+			for _, existing := range newManifest.Routes {
+				if existing.Method == r.Method && existing.Path == r.Path {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				newManifest.Routes = append(newManifest.Routes, r)
+			}
+		}
+		for _, s := range smScripts {
+			exists := false
+			for _, existing := range newManifest.Scripts {
+				if existing.Name == s.Name {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				newManifest.Scripts = append(newManifest.Scripts, s)
+			}
+		}
+	}
+
 	// 4. Diff
 	changes := manifest.Diff(e.manifest, newManifest)
 	log.Printf("[engine] diff computed: %d changes", len(changes))
