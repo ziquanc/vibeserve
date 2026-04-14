@@ -1,6 +1,8 @@
 package config
 
 import (
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +20,7 @@ type Config struct {
 	BaseURL    string       `yaml:"base_url,omitempty"` // OpenAI-compatible endpoint URL
 	MaxTokens  int          `yaml:"max_tokens,omitempty"`
 	Server     ServerConfig `yaml:"server"`
+	JWTSecret  string       `yaml:"jwt_secret,omitempty"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -39,7 +42,15 @@ func DefaultConfig() *Config {
 			Host: "localhost",
 			CORS: true,
 		},
+		JWTSecret: generateRandomSecret(),
 	}
+}
+
+// generateRandomSecret produces a 32-byte hex-encoded random string.
+func generateRandomSecret() string {
+	b := make([]byte, 32)
+	crypto_rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // Load reads and parses a YAML config file from the given path.
