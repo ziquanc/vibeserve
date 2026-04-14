@@ -26,6 +26,7 @@ import (
 	"github.com/vibeserve/vibeserve/internal/runtime"
 	"github.com/vibeserve/vibeserve/internal/snapshot"
 	"github.com/vibeserve/vibeserve/internal/store"
+	"github.com/vibeserve/vibeserve/internal/watch"
 	"github.com/vibeserve/vibeserve/internal/web"
 )
 
@@ -62,6 +63,7 @@ func main() {
 	rootCmd.AddCommand(mcpCmd())
 	rootCmd.AddCommand(testCmd())
 	rootCmd.AddCommand(diffCmd())
+	rootCmd.AddCommand(watchCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -791,5 +793,160 @@ func runUp(manifestPath, host string, port int) error {
 	case <-sigCh:
 		log.Println("Shutting down...")
 		return srv.Shutdown(context.Background())
+	}
+}
+
+// Watch mode color constants.
+const (
+	watchBold   = "\033[1m"
+	watchPurple = "\033[35m"
+	watchGreen  = "\033[32m"
+	watchRed    = "\033[31m"
+	watchDim    = "\033[2m"
+	watchReset  = "\033[0m"
+)
+
+func watchCmd() *cobra.Command {
+	var manifestPath string
+	var exportDir string
+	var format string
+	var db string
+	var typescript bool
+	var port int
+	var host string
+
+	cmd := &cobra.Command{
+		Use:   "watch",
+		Short: "Run API server and auto re-export on manifest changes",
+		Long:  "Starts the API server and watches the manifest file. When it changes (via chat, MCP, or direct edit), automatically re-exports the project and generates migration SQL.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if exportDir == "" {
+				return fmt.Errorf("--export flag is required")
+			}
+			return runWatch(manifestPath, exportDir, format, db, typescript, host, port)
+		},
+	}
+
+	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
+	cmd.Flags().StringVar(&exportDir, "export", "", "Path to exported project directory (required)")
+	cmd.Flags().StringVar(&format, "format", "express", "Export format: go, express, or next")
+	cmd.Flags().StringVar(&db, "db", "sqlite", "Database type: sqlite or postgres")
+	cmd.Flags().BoolVar(&typescript, "typescript", false, "Generate TypeScript type definitions")
+	cmd.Flags().IntVarP(&port, "port", "p", 8080, "Server port")
+	cmd.Flags().StringVar(&host, "host", "localhost", "Server host")
+
+	return cmd
+}
+
+func runWatch(manifestPath, exportDir, format, dbType string, typescript bool, host string, port int) error {
+	m, err := manifest.LoadFromFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("load manifest: %w", err)
+	}
+
+	// Same server setup as runUp
+	bus := engine.NewBus()
+	os.MkdirAll(".vibe", 0o755)
+	s, err := store.New(".vibe/state.db")
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer s.Close()
+
+	if err := s.ApplySchemas(m.Schemas); err != nil {
+		return fmt.Errorf("apply schemas: %w", err)
+	}
+	for _, seed := range m.Seeds {
+		count, _ := s.CountAll(seed.Table)
+		if count == 0 {
+			_ = s.Seed(seed.Table, seed.Rows)
+		}
+	}
+
+	trie := router.NewTrie()
+	scripts := make(map[string]string)
+	for _, sc := range m.Scripts {
+		scripts[sc.Name] = sc.Code
+	}
+	for _, r := range m.Routes {
+		trie.Insert(r.Method, r.Path, r.Script)
+	}
+
+	rt := runtime.New(s, bus)
+	eng := engine.NewEngine(engine.EngineConfig{
+		Bus: bus, Store: s, Trie: trie, Scripts: scripts,
+		Manifest: m, VibeDir: ".vibe",
+		StoreOpener: func(dsn string) (engine.SchemaStore, error) { return store.New(dsn) },
+	})
+
+	apiHandler := router.NewHandler(trie, eng.GetScript, rt, false)
+	consoleHandler := web.NewConsole(eng, s)
+	wsHub := web.NewWSHub(bus)
+	blueprintHandler := web.NewBlueprintHandler(eng)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler)
+	srv := router.NewServer(host, port, mux)
+
+	// Initial export
+	fmt.Printf("\n  %s%sVibeServe Watch%s\n\n", watchBold, watchPurple, watchReset)
+	fmt.Printf("  Server:    http://%s:%d\n", host, port)
+	fmt.Printf("  Export:    %s (format: %s)\n", exportDir, format)
+	fmt.Printf("  Watching:  %s\n\n", manifestPath)
+
+	// Do initial export
+	{
+		exp := export.NewExporter(m, exportDir)
+		exp.SetVibeDir(".vibe")
+		exp.SetDBType(dbType)
+		if typescript {
+			exp.SetTypeScript(true)
+		}
+		switch format {
+		case "next":
+			err = exp.RunNext()
+		case "express":
+			err = exp.RunExpress()
+		default:
+			err = exp.Run()
+		}
+		if err != nil {
+			fmt.Printf("  %sx Initial export failed: %v%s\n", watchRed, err, watchReset)
+		} else {
+			fmt.Printf("  %sv Initial export complete%s\n", watchGreen, watchReset)
+		}
+	}
+
+	// Start watcher
+	watcher := watch.New(watch.Config{
+		ManifestPath: manifestPath,
+		ExportDir:    exportDir,
+		Format:       format,
+		DBType:       dbType,
+		TypeScript:   typescript,
+	})
+
+	stopWatch := make(chan struct{})
+	go watcher.Start(stopWatch, func(summary string) {
+		fmt.Printf("\n  %sv Manifest changed%s\n%s\n\n", watchGreen, watchReset, summary)
+	})
+
+	// Start server
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Start() }()
+
+	fmt.Printf("  %sv Server running at http://%s:%d%s\n", watchGreen, host, port, watchReset)
+	fmt.Printf("  %sWaiting for manifest changes...%s\n\n", watchDim, watchReset)
+
+	select {
+	case err := <-errCh:
+		close(stopWatch)
+		return err
+	case <-sigCh:
+		close(stopWatch)
+		srv.Shutdown(context.Background())
+		fmt.Println("\n  Shutting down...")
+		return nil
 	}
 }
