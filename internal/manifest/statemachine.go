@@ -129,17 +129,23 @@ func generateTransitionScript(table, field string, tr Transition) string {
 	// 3. Role guard.
 	if tr.Guard != nil && tr.Guard.Role != "" {
 		lines = append(lines,
-			`auth := request.auth()`,
-			fmt.Sprintf(`if auth.role != "%s" {`, tr.Guard.Role),
+			`user_auth := request.auth()`,
+			`if user_auth == undefined {`,
+			`  response.fail(401, "authentication required")`,
+			`}`,
+			fmt.Sprintf(`if user_auth.role != "%s" {`, tr.Guard.Role),
 			fmt.Sprintf(`  response.fail(403, "%s requires %s role")`, tr.Action, tr.Guard.Role),
 			`}`,
 		)
 	}
 
-	// 4. Condition guard.
+	// 4. Condition guard — prefix field names with "row." for access.
 	if tr.Guard != nil && tr.Guard.Condition != "" {
+		// Wrap the condition to reference the row object.
+		// e.g., "total > 0" becomes "row.total > 0"
+		condition := prefixRowFields(tr.Guard.Condition)
 		lines = append(lines,
-			fmt.Sprintf(`if !(%s) {`, tr.Guard.Condition),
+			fmt.Sprintf(`if !(%s) {`, condition),
 			fmt.Sprintf(`  response.fail(400, "guard condition not met: %s")`, tr.Guard.Condition),
 			`}`,
 		)
@@ -215,4 +221,36 @@ func singularize(s string) string {
 // joinLines concatenates lines with newline separators.
 func joinLines(lines []string) string {
 	return strings.Join(lines, "\n")
+}
+
+// prefixRowFields adds "row." prefix to identifiers in a condition string.
+// "total > 0" becomes "row.total > 0"
+// "items_count > 0" becomes "row.items_count > 0"
+// Already-prefixed "row.x" is left unchanged.
+func prefixRowFields(condition string) string {
+	// Simple approach: split by spaces, prefix words that look like field names
+	words := strings.Fields(condition)
+	for i, w := range words {
+		// Skip operators, numbers, strings
+		if w == ">" || w == "<" || w == ">=" || w == "<=" || w == "==" || w == "!=" || w == "&&" || w == "||" || w == "!" {
+			continue
+		}
+		// Skip numbers
+		if len(w) > 0 && (w[0] >= '0' && w[0] <= '9') {
+			continue
+		}
+		// Skip already prefixed
+		if strings.HasPrefix(w, "row.") {
+			continue
+		}
+		// Skip keywords
+		if w == "true" || w == "false" || w == "undefined" {
+			continue
+		}
+		// This looks like a field name — prefix it
+		if len(w) > 0 && ((w[0] >= 'a' && w[0] <= 'z') || w[0] == '_') {
+			words[i] = "row." + w
+		}
+	}
+	return strings.Join(words, " ")
 }
