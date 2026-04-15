@@ -298,3 +298,104 @@ Refresh the dashboard — Coffee Corner is back with a new ID.
 | Dashboard returns 401 repeatedly | Token expired — clear `~/.vibeserve/credentials.json` and re-login |
 | Dev server won't start | Check `.vibe/config.yaml` has a provider.api_key (use "SKIP" if you just want to test sync, not LLM features) |
 | `.data/db.json` missing users on restart | Confirm `.data/` is gitignored in the web repo; the file persists across restarts but not across `.data/` deletion |
+
+---
+
+# Phase 3: Go Live (Tunnel)
+
+Assumes:
+- You completed the Phase 1 + 2 walkthroughs above
+- The `vibeserve.dev` tunnel is set up (see `docs/tunnel/setup.md`)
+- `cloudflared` is installed and is **not** currently running
+
+## 1. Make sure the tunnel infrastructure is ready
+
+```bash
+# Validate config
+cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
+# Expected: OK
+
+# Verify cloudflared isn't already running
+pgrep -fl 'cloudflared tunnel.*run' && echo "stop it first" || echo "OK"
+```
+
+## 2. Start the API server
+
+```bash
+cd /tmp/sync-demo  # the project from Phase 2 walkthrough
+/tmp/vibeserve dev &
+sleep 3
+```
+
+This also re-syncs the project to the platform (status=running).
+
+## 3. Take it live
+
+In another terminal:
+
+```bash
+cd /tmp/sync-demo
+/tmp/vibeserve live
+```
+
+You should see cloudflared startup logs followed by:
+
+```
+  ✦ Live at https://coffee-corner.vibeserve.dev
+  Press Ctrl-C to stop.
+```
+
+(Subdomain comes from kebab-case of your project name. Override with `--subdomain mycoffee`.)
+
+## 4. Verify the public URL works
+
+In a third terminal:
+
+```bash
+curl https://coffee-corner.vibeserve.dev/menu
+# Should return whatever your local API returns at GET /menu
+```
+
+## 5. Verify dashboard updated
+
+Open http://localhost:3000/dashboard:
+- The project card shows a green dot + the live URL
+- Click the card → detail page has a prominent green "Live" panel + Copy button
+
+## 6. Verify .well-known descriptor
+
+```bash
+curl -s https://coffee-corner.vibeserve.dev/.well-known/vibeserve.json | python3 -m json.tool
+```
+
+Expected output: JSON with `name`, `description`, `endpoints` (one per route), `openapi`.
+
+## 7. Stop and verify cleanup
+
+In the `vibeserve live` terminal, Ctrl-C. You should see:
+
+```
+  Tunnel stopped.
+```
+
+Verify cleanup:
+
+```bash
+# ingress rule removed from config.yml
+grep coffee-corner ~/.cloudflared/config.yml || echo "OK: ingress cleaned up"
+
+# Dashboard back to status=running
+# (refresh the dashboard tab — the green dot should be gone, status badge is "running")
+```
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `cloudflared not found in PATH` | `brew install cloudflared` |
+| `cloudflared config not found` | See `docs/tunnel/setup.md` |
+| Live URL returns Cloudflare error 1033 | cloudflared subprocess died — check `vibeserve live` output |
+| Live URL returns 502 | API server isn't running on the configured port |
+| Live URL returns 404 | Hit a path that doesn't match a route in your manifest |
+| `tunnel already has a connection` | Another cloudflared is running externally; stop it first (`pkill -f 'cloudflared tunnel.*run'`) |
+| Hitting Ctrl-C twice escalates to SIGKILL | Working as designed — the second signal forces immediate exit if cloudflared stalls |
