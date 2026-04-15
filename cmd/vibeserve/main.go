@@ -68,7 +68,7 @@ func main() {
 	rootCmd.AddCommand(diffCmd())
 	rootCmd.AddCommand(watchCmd())
 	rootCmd.AddCommand(initCmd())
-	rootCmd.AddCommand(loginCmd(), logoutCmd(), accountCmd(), projectsCmd())
+	rootCmd.AddCommand(loginCmd(), logoutCmd(), accountCmd(), projectsCmd(), liveCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -1152,4 +1152,130 @@ func projectsCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func liveCmd() *cobra.Command {
+	var subdomain string
+	var configPath string
+	var manifestPath string
+
+	cmd := &cobra.Command{
+		Use:   "live",
+		Short: "Expose your local API at <project>.vibeserve.dev via the shared tunnel",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLive(configPath, manifestPath, subdomain)
+		},
+	}
+	cmd.Flags().StringVar(&subdomain, "subdomain", "", "Override auto-derived subdomain")
+	cmd.Flags().StringVarP(&manifestPath, "manifest", "m", ".vibe/manifest.json", "Path to manifest.json")
+	cmd.Flags().StringVarP(&configPath, "config", "c", ".vibe/config.yaml", "Path to config.yaml")
+	return cmd
+}
+
+func runLive(configPath, manifestPath, subdomainOverride string) error {
+	// 1. Auth check
+	creds := cloud.LoadCredentials()
+	if creds == nil {
+		return fmt.Errorf("not logged in — run 'vibeserve login' first")
+	}
+
+	// 2. Manifest required
+	m, err := manifest.LoadFromFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("load manifest: %w (run 'vibeserve dev' first to generate one)", err)
+	}
+
+	// 3. Project must already be synced (so we have an ID to PATCH)
+	vibeDir := filepath.Dir(manifestPath)
+	loadedID, err := cloud.LoadProjectID(vibeDir)
+	if err != nil {
+		return fmt.Errorf("read project id: %w", err)
+	}
+	if loadedID == "" {
+		return fmt.Errorf("project not synced yet — run 'vibeserve dev' once while logged in")
+	}
+
+	// 4. Read local server port from config
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	port := cfg.Server.Port
+	if port == 0 {
+		port = 8080
+	}
+
+	// 5. Verify cloudflared installed and config exists
+	cloudflaredPath, err := exec.LookPath("cloudflared")
+	if err != nil {
+		return fmt.Errorf("cloudflared not found in PATH — install via `brew install cloudflared` (see docs/tunnel/setup.md)")
+	}
+	tunnelConfigPath := filepath.Join(os.Getenv("HOME"), ".cloudflared", "config.yml")
+	if _, err := os.Stat(tunnelConfigPath); err != nil {
+		return fmt.Errorf("cloudflared config not found at %s — see docs/tunnel/setup.md", tunnelConfigPath)
+	}
+
+	// 6. Compute subdomain + URL
+	sub := cloud.Subdomain(m.Name, subdomainOverride)
+	hostname := sub + ".vibeserve.dev"
+	liveURL := "https://" + hostname
+
+	// 7. Add ingress rule (upserts)
+	service := fmt.Sprintf("http://localhost:%d", port)
+	if err := cloud.AddIngress(tunnelConfigPath, hostname, service); err != nil {
+		return fmt.Errorf("add ingress: %w", err)
+	}
+
+	// 8. Spawn cloudflared as child, streaming output
+	tunnelCmd := exec.Command(cloudflaredPath, "tunnel", "--config", tunnelConfigPath, "run", "vibeserve-main")
+	tunnelCmd.Stdout = os.Stdout
+	tunnelCmd.Stderr = os.Stderr
+	if err := tunnelCmd.Start(); err != nil {
+		_ = cloud.RemoveIngress(tunnelConfigPath, hostname)
+		return fmt.Errorf("start cloudflared: %w", err)
+	}
+
+	// 9. Notify platform: status=live + liveURL
+	client := cloud.NewClient(cloud.PlatformURL, creds.Token)
+	if _, err := client.Patch("/api/projects/"+loadedID, map[string]any{
+		"status":  "live",
+		"liveURL": liveURL,
+	}); err != nil {
+		log.Printf("warning: failed to update platform status: %v", err)
+	}
+
+	fmt.Printf("\n  ✦ Live at %s\n  Press Ctrl-C to stop.\n\n", liveURL)
+
+	// 10. Block until signal, then clean up
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	exitCh := make(chan error, 1)
+	go func() {
+		exitCh <- tunnelCmd.Wait()
+	}()
+
+	select {
+	case <-sigCh:
+		_ = tunnelCmd.Process.Signal(syscall.SIGTERM)
+		<-exitCh
+	case err := <-exitCh:
+		if err != nil {
+			log.Printf("cloudflared exited: %v", err)
+		}
+	}
+
+	// 11. Clean up ingress + platform status
+	if err := cloud.RemoveIngress(tunnelConfigPath, hostname); err != nil {
+		log.Printf("warning: failed to remove ingress for %s: %v", hostname, err)
+	}
+	if _, err := client.Patch("/api/projects/"+loadedID, map[string]any{
+		"status":  "running",
+		"liveURL": "",
+	}); err != nil {
+		log.Printf("warning: failed to update platform status on stop: %v", err)
+	}
+
+	fmt.Println("\n  Tunnel stopped.")
+	return nil
 }
