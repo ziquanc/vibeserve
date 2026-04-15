@@ -64,8 +64,8 @@ Click **Create account**.
 **Expected:** page redirects to `/` (landing page). A JWT is stored in
 `localStorage`.
 
-> The web uses in-memory user storage (`web/src/lib/db.ts`). If you restart
-> `npm run dev`, all registered users are wiped — you'll need to re-register.
+> Users are persisted to `.data/db.json` in the web repo (JSON file, not a real
+> DB yet). They survive `npm run dev` restarts. To reset, delete `.data/`.
 
 ---
 
