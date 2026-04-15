@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vibeserve/vibeserve/internal/apitest"
@@ -1210,7 +1211,11 @@ func runLive(configPath, manifestPath, subdomainOverride string) error {
 	if err != nil {
 		return fmt.Errorf("cloudflared not found in PATH — install via `brew install cloudflared` (see docs/tunnel/setup.md)")
 	}
-	tunnelConfigPath := filepath.Join(os.Getenv("HOME"), ".cloudflared", "config.yml")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home dir: %w", err)
+	}
+	tunnelConfigPath := filepath.Join(homeDir, ".cloudflared", "config.yml")
 	if _, err := os.Stat(tunnelConfigPath); err != nil {
 		return fmt.Errorf("cloudflared config not found at %s — see docs/tunnel/setup.md", tunnelConfigPath)
 	}
@@ -1237,11 +1242,13 @@ func runLive(configPath, manifestPath, subdomainOverride string) error {
 
 	// 9. Notify platform: status=live + liveURL
 	client := cloud.NewClient(cloud.PlatformURL, creds.Token)
-	if _, err := client.Patch("/api/projects/"+loadedID, map[string]any{
+	if resp, err := client.Patch("/api/projects/"+loadedID, map[string]any{
 		"status":  "live",
 		"liveURL": liveURL,
 	}); err != nil {
 		log.Printf("warning: failed to update platform status: %v", err)
+	} else {
+		resp.Body.Close()
 	}
 
 	fmt.Printf("\n  ✦ Live at %s\n  Press Ctrl-C to stop.\n\n", liveURL)
@@ -1249,6 +1256,7 @@ func runLive(configPath, manifestPath, subdomainOverride string) error {
 	// 10. Block until signal, then clean up
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
 	exitCh := make(chan error, 1)
 	go func() {
@@ -1258,7 +1266,17 @@ func runLive(configPath, manifestPath, subdomainOverride string) error {
 	select {
 	case <-sigCh:
 		_ = tunnelCmd.Process.Signal(syscall.SIGTERM)
-		<-exitCh
+		// Give cloudflared up to 5s to exit gracefully; SIGKILL if it stalls
+		// or if the user impatiently sends a second SIGINT.
+		select {
+		case <-exitCh:
+		case <-sigCh:
+			_ = tunnelCmd.Process.Kill()
+			<-exitCh
+		case <-time.After(5 * time.Second):
+			_ = tunnelCmd.Process.Kill()
+			<-exitCh
+		}
 	case err := <-exitCh:
 		if err != nil {
 			log.Printf("cloudflared exited: %v", err)
@@ -1269,11 +1287,13 @@ func runLive(configPath, manifestPath, subdomainOverride string) error {
 	if err := cloud.RemoveIngress(tunnelConfigPath, hostname); err != nil {
 		log.Printf("warning: failed to remove ingress for %s: %v", hostname, err)
 	}
-	if _, err := client.Patch("/api/projects/"+loadedID, map[string]any{
+	if resp, err := client.Patch("/api/projects/"+loadedID, map[string]any{
 		"status":  "running",
 		"liveURL": "",
 	}); err != nil {
 		log.Printf("warning: failed to update platform status on stop: %v", err)
+	} else {
+		resp.Body.Close()
 	}
 
 	fmt.Println("\n  Tunnel stopped.")
