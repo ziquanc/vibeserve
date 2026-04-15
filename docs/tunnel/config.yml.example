@@ -1,0 +1,33 @@
+# VibeServe Tunnel — config.yml template
+#
+# Copy this file to ~/.cloudflared/config.yml and fill in your tunnel UUID
+# (the one from `cloudflared tunnel create vibeserve-main` output, also
+# visible as the .json filename in ~/.cloudflared/).
+#
+# `vibeserve live` will manage the `ingress:` section automatically — adding
+# rules above the fallback. You can hand-edit too, but `vibeserve live` may
+# overwrite manual changes.
+
+tunnel: <UUID>
+credentials-file: /Users/<YOU>/.cloudflared/<UUID>.json
+
+# Optional: keep tunnel logs out of stdout
+# logfile: /Users/<YOU>/.cloudflared/cloudflared.log
+# loglevel: info
+
+# Ingress rules (managed by `vibeserve live`)
+#
+# Each project gets its own rule above the fallback. Example:
+#
+# ingress:
+#   - hostname: coffee-corner.vibeserve.dev
+#     service: http://localhost:8080
+#   - hostname: my-clinic.vibeserve.dev
+#     service: http://localhost:8081
+#   - service: http_status:404
+#
+# Don't remove the final fallback — without it, unmatched hostnames
+# return cloudflared's default response which can confuse callers.
+
+ingress:
+  - service: http_status:404
