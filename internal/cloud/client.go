@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// Client is an authenticated HTTP client for the VibeServe platform API.
+// The caller is responsible for closing resp.Body on successful responses.
 type Client struct {
 	baseURL string
 	token   string
@@ -44,26 +46,30 @@ func (c *Client) do(method, path string, body any) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, b)
 	}
 	return resp, nil
 }
 
+// Get issues an authenticated GET request. Caller must close resp.Body on success.
 func (c *Client) Get(path string) (*http.Response, error) {
 	return c.do("GET", path, nil)
 }
 
+// Post issues an authenticated POST request with a JSON body. Caller must close resp.Body on success.
 func (c *Client) Post(path string, body any) (*http.Response, error) {
 	return c.do("POST", path, body)
 }
 
+// Patch issues an authenticated PATCH request with a JSON body. Caller must close resp.Body on success.
 func (c *Client) Patch(path string, body any) (*http.Response, error) {
 	return c.do("PATCH", path, body)
 }
 
+// Delete issues an authenticated DELETE request. Caller must close resp.Body on success.
 func (c *Client) Delete(path string) (*http.Response, error) {
 	return c.do("DELETE", path, nil)
 }
