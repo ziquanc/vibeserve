@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -67,7 +68,7 @@ func main() {
 	rootCmd.AddCommand(diffCmd())
 	rootCmd.AddCommand(watchCmd())
 	rootCmd.AddCommand(initCmd())
-	rootCmd.AddCommand(loginCmd(), logoutCmd(), accountCmd())
+	rootCmd.AddCommand(loginCmd(), logoutCmd(), accountCmd(), projectsCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -670,6 +671,7 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 			return fmt.Errorf("load manifest: %w", err)
 		}
 		log.Printf("Loaded manifest: %s (%d routes, %d schemas)", m.Name, len(m.Routes), len(m.Schemas))
+		trySyncProject(manifestPath, m)
 	} else {
 		m = nil
 		log.Println("No manifest found; starting fresh")
@@ -1071,6 +1073,82 @@ func accountCmd() *cobra.Command {
 				return nil
 			}
 			fmt.Printf("\n  Email: %s\n  Plan:  %s\n\n", creds.Email, creds.Plan)
+			return nil
+		},
+	}
+}
+
+// trySyncProject syncs project metadata to the platform if the user is logged in.
+// Non-fatal: errors are logged but don't block server start.
+func trySyncProject(manifestPath string, m *manifest.Manifest) {
+	creds := cloud.LoadCredentials()
+	if creds == nil {
+		return // not logged in; skip sync silently
+	}
+
+	vibeDir := filepath.Dir(manifestPath)
+	client := cloud.NewClient(cloud.PlatformURL, creds.Token)
+
+	name := m.Name
+	if name == "" {
+		name = filepath.Base(filepath.Dir(vibeDir))
+	}
+
+	_, err := cloud.SyncProject(client, vibeDir, cloud.SyncInput{
+		Name:       name,
+		TableCount: len(m.Schemas),
+		RouteCount: len(m.Routes),
+		Status:     "running",
+	})
+	if err != nil {
+		log.Printf("project sync failed: %v", err)
+		return
+	}
+}
+
+func projectsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "projects",
+		Short: "List your VibeServe projects",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			creds := cloud.LoadCredentials()
+			if creds == nil {
+				fmt.Print("\n  Not logged in. Run 'vibeserve login' first.\n\n")
+				return nil
+			}
+
+			client := cloud.NewClient(cloud.PlatformURL, creds.Token)
+			resp, err := client.Get("/api/projects")
+			if err != nil {
+				return fmt.Errorf("fetch projects: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var out struct {
+				Projects []struct {
+					ID         string `json:"id"`
+					Name       string `json:"name"`
+					Subdomain  string `json:"subdomain"`
+					Status     string `json:"status"`
+					TableCount int    `json:"tableCount"`
+					RouteCount int    `json:"routeCount"`
+				} `json:"projects"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				return fmt.Errorf("decode: %w", err)
+			}
+
+			if len(out.Projects) == 0 {
+				fmt.Print("\n  No projects yet. Run 'vibeserve dev' in a project dir to sync.\n\n")
+				return nil
+			}
+
+			fmt.Printf("\n  %-36s  %-20s  %-10s  %s\n", "ID", "NAME", "STATUS", "TABLES/ROUTES")
+			for _, p := range out.Projects {
+				fmt.Printf("  %-36s  %-20s  %-10s  %d/%d\n",
+					p.ID, p.Name, p.Status, p.TableCount, p.RouteCount)
+			}
+			fmt.Println()
 			return nil
 		},
 	}
