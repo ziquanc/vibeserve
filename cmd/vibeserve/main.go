@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vibeserve/vibeserve/internal/apitest"
+	"github.com/vibeserve/vibeserve/internal/cloud"
 	"github.com/vibeserve/vibeserve/internal/config"
 	"github.com/vibeserve/vibeserve/internal/engine"
 	"github.com/vibeserve/vibeserve/internal/export"
@@ -66,6 +67,7 @@ func main() {
 	rootCmd.AddCommand(diffCmd())
 	rootCmd.AddCommand(watchCmd())
 	rootCmd.AddCommand(initCmd())
+	rootCmd.AddCommand(loginCmd(), logoutCmd(), accountCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -1022,5 +1024,54 @@ func runWatch(manifestPath, exportDir, format, dbType string, typescript bool, h
 		srv.Shutdown(context.Background())
 		fmt.Println("\n  Shutting down...")
 		return nil
+	}
+}
+
+func loginCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "login",
+		Short: "Log in to your VibeServe account",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cloud.IsLoggedIn() {
+				creds := cloud.LoadCredentials()
+				fmt.Printf("\n  Already logged in as %s (%s plan)\n", creds.Email, creds.Plan)
+				fmt.Printf("  Run 'vibeserve logout' to switch accounts.\n\n")
+				return nil
+			}
+			_, err := cloud.Login()
+			return err
+		},
+	}
+}
+
+func logoutCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "logout",
+		Short: "Log out of your VibeServe account",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cloud.IsLoggedIn() {
+				fmt.Print("\n  Not logged in.\n\n")
+				return nil
+			}
+			cloud.DeleteCredentials()
+			fmt.Print("\n  Logged out.\n\n")
+			return nil
+		},
+	}
+}
+
+func accountCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "account",
+		Short: "Show your VibeServe account info",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			creds := cloud.LoadCredentials()
+			if creds == nil {
+				fmt.Print("\n  Not logged in. Run 'vibeserve login' to connect.\n\n")
+				return nil
+			}
+			fmt.Printf("\n  Email: %s\n  Plan:  %s\n\n", creds.Email, creds.Plan)
+			return nil
+		},
 	}
 }
