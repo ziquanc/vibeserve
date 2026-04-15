@@ -1,0 +1,19 @@
+<svg id="logo-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 350 100" class="w-full h-auto">
+    <defs>
+        <linearGradient id="v1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#8B5CF6"/>
+            <stop offset="100%" stop-color="#EC4899"/>
+        </linearGradient>
+        <linearGradient id="v2" x1="100%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#3B82F6"/>
+            <stop offset="100%" stop-color="#8B5CF6"/>
+        </linearGradient>
+    </defs>
+    <g transform="translate(15, 20)">
+        <line x1="10" y1="10" x2="35" y2="55" stroke="url(#v1)" stroke-width="12" stroke-linecap="round"/>
+        <line x1="60" y1="10" x2="35" y2="55" stroke="url(#v2)" stroke-width="12" stroke-linecap="round"/>
+    </g>
+    <text x="100" y="62" font-family="'Inter', sans-serif" font-weight="800" font-size="38" fill="#ffffff">
+        Vibe<tspan font-weight="400" fill="#9ca3af">Serve</tspan>
+    </text>
+</svg>
