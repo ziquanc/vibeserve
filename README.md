@@ -1,18 +1,12 @@
 <p align="center">
-  <img src="assets/banner.png" width="100%" alt="VibeServe" />
-</p>
-
-<h1 align="center">VibeServe</h1>
-
-<p align="center">
-  <strong>Describe your API. Get a running server.</strong>
+  <img src="assets/banner.svg" width="100%" alt="VibeServe" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/ziquanc/vibeserve/releases"><img src="https://img.shields.io/github/v/release/ziquanc/vibeserve?color=7C3AED&label=release" alt="Release"></a>
+  <a href="https://github.com/ziquanc/vibeserve/releases"><img src="https://img.shields.io/github/v/release/ziquanc/vibeserve?color=8B5CF6&label=release" alt="Release"></a>
   <a href="https://github.com/ziquanc/vibeserve/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-22C55E" alt="MIT License"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-06B6D4" alt="Platform"></a>
-  <a href="https://github.com/ziquanc/vibeserve/issues"><img src="https://img.shields.io/github/issues/ziquanc/vibeserve?color=F59E0B" alt="Issues"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-3B82F6" alt="Platform"></a>
+  <a href="https://github.com/ziquanc/vibeserve/issues"><img src="https://img.shields.io/github/issues/ziquanc/vibeserve?color=EC4899" alt="Issues"></a>
 </p>
 
 ---
@@ -330,6 +324,38 @@ Watches `.vibe/manifest.json`. When it changes (via chat, MCP, or direct edit), 
 | `vibeserve undo` | Restore last database snapshot |
 | `vibeserve up` | Start server without AI (existing manifest) |
 
+## Optional: Cloud Account
+
+VibeServe works 100% offline. Everything above runs without an account.
+
+If you want a dashboard and a one-command public URL, create a free account at [vibeserve.dev](https://vibeserve.dev):
+
+```bash
+vibeserve login       # Opens browser → register/login at vibeserve.dev
+vibeserve account     # Shows current email + plan
+vibeserve logout      # Clears local credentials
+```
+
+Once logged in, `vibeserve dev` auto-syncs project metadata (name, table/route counts) to your dashboard at [vibeserve.dev/dashboard](https://vibeserve.dev/dashboard). Your data stays on your machine — only metadata syncs.
+
+```bash
+vibeserve projects    # List your synced projects from the CLI
+```
+
+### Go Live — public URL from your local server
+
+```bash
+vibeserve live
+#   ✦ Live at https://coffee-corner.vibeserve.dev
+#   Press Ctrl-C to stop.
+```
+
+Uses [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) to route `<project>.vibeserve.dev` → your local server. Auto-derives the subdomain from your project name (or override with `--subdomain mycoffee`). Platform status + live URL surface on the dashboard. Ctrl-C cleanly removes the route.
+
+Serves `/.well-known/vibeserve.json` from the running API — a machine-readable descriptor of your endpoints for AI agents and crawlers.
+
+**Requires cloudflared installed locally** — `brew install cloudflared`, then a one-time auth. Full setup in [docs/tunnel/setup.md](docs/tunnel/setup.md).
+
 ## Install
 
 **Quick install (macOS & Linux):**
@@ -356,11 +382,12 @@ The setup wizard runs on first launch and saves config to `.vibe/config.yaml`.
 
 ## Privacy
 
-VibeServe runs entirely on your machine. No server, no account, no telemetry.
+VibeServe runs entirely on your machine by default. No server, no account required, no telemetry.
 
 - Your code stays local — manifests, database, scripts all in `.vibe/`
 - LLM calls go directly to your provider — VibeServe never proxies or stores them
 - Use Ollama for fully offline mode — nothing leaves your machine
+- The optional [cloud account](#optional-cloud-account) only syncs project metadata (name, table/route counts), never your data. Skip it entirely to stay fully local.
 
 ## Contributing
 
@@ -372,6 +399,10 @@ go build -o vibeserve ./cmd/vibeserve
 ```
 
 Requires Go 1.23+. No CGO — builds anywhere Go runs.
+
+## Roadmap
+
+Platform-side work (dashboard, directory, desktop app, billing) lives alongside the CLI. Current status and planned phases in [docs/PLATFORM_ROADMAP.md](docs/PLATFORM_ROADMAP.md).
 
 ## Community
 

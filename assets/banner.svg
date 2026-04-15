@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img" aria-label="VibeServe — Describe your API. Get a running server.">
+  <defs>
+    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a0a"/>
+      <stop offset="50%" stop-color="#111111"/>
+      <stop offset="100%" stop-color="#0a0a0a"/>
+    </linearGradient>
+    <linearGradient id="bannerV1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#EC4899"/>
+    </linearGradient>
+    <linearGradient id="bannerV2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <radialGradient id="bannerGlowL" cx="25%" cy="50%" r="30%">
+      <stop offset="0%" stop-color="#8B5CF6" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bannerGlowR" cx="75%" cy="50%" r="30%">
+      <stop offset="0%" stop-color="#EC4899" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#EC4899" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="300" fill="url(#bannerBg)"/>
+  <rect width="1200" height="300" fill="url(#bannerGlowL)"/>
+  <rect width="1200" height="300" fill="url(#bannerGlowR)"/>
+
+  <g transform="translate(260, 105)">
+    <line x1="15" y1="15" x2="60" y2="100" stroke="url(#bannerV1)" stroke-width="22" stroke-linecap="round"/>
+    <line x1="105" y1="15" x2="60" y2="100" stroke="url(#bannerV2)" stroke-width="22" stroke-linecap="round"/>
+  </g>
+
+  <text x="410" y="185"
+        font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-weight="800" font-size="76" fill="#ffffff">
+    Vibe<tspan font-weight="400" fill="#9ca3af">Serve</tspan>
+  </text>
+
+  <text x="600" y="240"
+        font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-weight="400" font-size="22" fill="#9ca3af" text-anchor="middle">
+    Describe your API. Get a running server.
+  </text>
+</svg>

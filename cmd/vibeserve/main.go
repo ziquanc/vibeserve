@@ -34,7 +34,7 @@ import (
 	"github.com/vibeserve/vibeserve/internal/web"
 )
 
-var version = "0.1.0"
+var version = "0.6.0"
 
 func main() {
 	var port int

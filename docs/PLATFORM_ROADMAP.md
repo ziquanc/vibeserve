@@ -424,18 +424,16 @@ Download VibeServe.dmg (macOS) / VibeServe.exe (Windows)
 ## Implementation Order
 
 ```
-Phase 1: Auth              ← foundation, 1-2 weeks
-Phase 2: Dashboard         ← user sees value, 1-2 weeks  
-Phase 3: Tunnel            ← the wow moment, 1-2 weeks
-Phase 4: Billing           ← revenue starts, 1 week
-Phase 5: Directory         ← network effect begins, 2-3 weeks
-Phase 6: Customer Portal   ← businesses get customers, 2-3 weeks
-Phase 7: Desktop App       ← non-dev users, 2-3 weeks
+Phase 1: Auth              ✅ shipped in v0.5.0
+Phase 2: Dashboard         ✅ shipped in v0.5.0
+Phase 3: Tunnel            ✅ shipped in v0.6.0 — try: vibeserve live
+Phase 4: Billing           — deferred
+Phase 5: Directory         — planned
+Phase 6: Customer Portal   — planned
+Phase 7: Desktop App       — planned
 ```
 
-Total: ~3-4 months for full platform.
-
-**Start with Phase 1 (auth) — everything else depends on it.**
+Phases 4-7 scope and ordering are under review after usage signal from Phases 1-3.
 
 ---
 
