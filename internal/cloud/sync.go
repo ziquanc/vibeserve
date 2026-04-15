@@ -22,10 +22,12 @@ type projectResp struct {
 // If .vibe/project.json has an ID, it PATCHes; otherwise POSTs and saves the new ID.
 // Returns the project ID (server-assigned or from the local cache).
 func SyncProject(c *Client, vibeDir string, in SyncInput) (string, error) {
-	existingID := LoadProjectID(vibeDir)
+	existingID, err := LoadProjectID(vibeDir)
+	if err != nil {
+		return "", fmt.Errorf("load project id: %w", err)
+	}
 
 	var resp *projectResp
-	var err error
 
 	if existingID != "" {
 		resp, err = patchProject(c, existingID, in)
@@ -56,6 +58,9 @@ func postProject(c *Client, in SyncInput) (*projectResp, error) {
 	if err := json.NewDecoder(httpResp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
 	}
+	if out.Project.ID == "" {
+		return nil, fmt.Errorf("server returned empty project ID")
+	}
 	return &out, nil
 }
 
@@ -69,6 +74,9 @@ func patchProject(c *Client, id string, in SyncInput) (*projectResp, error) {
 	var out projectResp
 	if err := json.NewDecoder(httpResp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
+	}
+	if out.Project.ID == "" {
+		return nil, fmt.Errorf("server returned empty project ID")
 	}
 	return &out, nil
 }

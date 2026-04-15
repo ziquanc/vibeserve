@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 )
 
@@ -44,13 +43,12 @@ func TestSyncProject_CreatesWhenNoID(t *testing.T) {
 	}
 
 	// Local project.json should now exist
-	if saved := LoadProjectID(vibeDir); saved != "proj-abc" {
-		t.Errorf("saved id: got %q, want proj-abc", saved)
+	saved, err := LoadProjectID(vibeDir)
+	if err != nil {
+		t.Fatalf("LoadProjectID: %v", err)
 	}
-
-	// Verify file location
-	if _, err := filepath.Glob(filepath.Join(vibeDir, "project.json")); err != nil {
-		t.Fatal(err)
+	if saved != "proj-abc" {
+		t.Errorf("saved id: got %q, want proj-abc", saved)
 	}
 }
 

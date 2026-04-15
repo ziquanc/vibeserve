@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -11,17 +12,21 @@ type localProject struct {
 }
 
 // LoadProjectID reads .vibe/project.json in the given vibeDir.
-// Returns "" if the file doesn't exist or is malformed.
-func LoadProjectID(vibeDir string) string {
+// Returns ("", nil) if the file is missing or malformed (treated as "no cached ID").
+// Returns ("", err) for real I/O errors (e.g. permission denied) so callers can surface them.
+func LoadProjectID(vibeDir string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(vibeDir, "project.json"))
 	if err != nil {
-		return ""
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read project id: %w", err)
 	}
 	var p localProject
 	if err := json.Unmarshal(data, &p); err != nil {
-		return ""
+		return "", nil // malformed treated as absent
 	}
-	return p.ID
+	return p.ID, nil
 }
 
 // SaveProjectID writes .vibe/project.json with the given ID.
