@@ -745,7 +745,7 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 	consoleHandler := web.NewConsole(eng, s)
 	wsHub := web.NewWSHub(bus)
 	blueprintHandler := web.NewBlueprintHandler(eng)
-	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler, m)
 	srv := router.NewServer(cfg.Server.Host, cfg.Server.Port, mux)
 
 	// Start HTTP server in background
@@ -848,7 +848,7 @@ func runUp(manifestPath, host string, port int) error {
 	consoleHandler := web.NewConsole(eng, s)
 	wsHub := web.NewWSHub(bus)
 	blueprintHandler := web.NewBlueprintHandler(eng)
-	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler, m)
 	srv := router.NewServer(host, port, mux)
 
 	manifestData, _ := json.MarshalIndent(m, "", "  ")
@@ -961,7 +961,7 @@ func runWatch(manifestPath, exportDir, format, dbType string, typescript bool, h
 	consoleHandler := web.NewConsole(eng, s)
 	wsHub := web.NewWSHub(bus)
 	blueprintHandler := web.NewBlueprintHandler(eng)
-	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler)
+	mux := web.NewConsoleMux(apiHandler, consoleHandler, wsHub, blueprintHandler, m)
 	srv := router.NewServer(host, port, mux)
 
 	// Initial export

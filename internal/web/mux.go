@@ -1,8 +1,12 @@
 package web
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
+
+	"github.com/vibeserve/vibeserve/internal/cloud"
+	"github.com/vibeserve/vibeserve/internal/manifest"
 )
 
 // NewConsoleMux builds the combined HTTP handler that routes:
@@ -13,7 +17,7 @@ import (
 //   - /_blueprint    → Blueprint preview HTML page
 //   - /_ws           → WebSocket hub
 //   - /              → existing API handler (trie-based)
-func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub, blueprint *BlueprintHandler) http.Handler {
+func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub, blueprint *BlueprintHandler, m *manifest.Manifest) http.Handler {
 	mux := http.NewServeMux()
 
 	// Serve embedded static files under /_console/
@@ -48,6 +52,17 @@ func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub, blue
 	mux.HandleFunc("GET /_blueprint", serveStaticPage("blueprint.html"))
 	mux.HandleFunc("GET /_blueprint/diagram", blueprint.HandleDiagram)
 	mux.HandleFunc("GET /_swagger", serveStaticPage("swagger.html"))
+
+	// .well-known descriptor — for AI agents and directory crawlers
+	mux.HandleFunc("GET /.well-known/vibeserve.json", func(w http.ResponseWriter, r *http.Request) {
+		if m == nil {
+			http.Error(w, "no manifest loaded", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=60")
+		_ = json.NewEncoder(w).Encode(cloud.GenerateWellKnown(m))
+	})
 
 	// Fall through to the existing trie-based API handler
 	mux.Handle("/", apiHandler)
