@@ -195,3 +195,106 @@ Running `/tmp/vibeserve account` again should now print
 - CLI polls correctly every 2s for up to 5 minutes
 - Credentials roundtrip through `~/.vibeserve/credentials.json`
 - `account` / `logout` behave correctly when logged in and not logged in
+
+---
+
+# Phase 2: Dashboard + Sync
+
+Assumes you've completed the Phase 1 auth walkthrough above and are logged in
+(`~/.vibeserve/credentials.json` exists).
+
+## 1. Sync a project from the CLI
+
+```bash
+mkdir -p /tmp/sync-demo/.vibe
+cat > /tmp/sync-demo/.vibe/manifest.json <<'EOF'
+{
+  "version": "1",
+  "name": "Coffee Corner",
+  "description": "Test project for Phase 2 walkthrough",
+  "schemas": [
+    {"table":"menu","columns":[{"name":"id","type":"integer","primary":true}]},
+    {"table":"orders","columns":[{"name":"id","type":"integer","primary":true}]}
+  ],
+  "routes": [
+    {"method":"GET","path":"/menu","script":""},
+    {"method":"POST","path":"/orders","script":""}
+  ],
+  "scripts": [],
+  "seeds": []
+}
+EOF
+
+# Minimal config so dev doesn't prompt for LLM setup
+cat > /tmp/sync-demo/.vibe/config.yaml <<'EOF'
+server:
+  host: localhost
+  port: 8765
+provider:
+  name: anthropic
+  model: claude-sonnet-4-5-20250929
+  api_key: "SKIP"
+EOF
+
+cd /tmp/sync-demo
+/tmp/vibeserve dev &
+sleep 5
+kill %1 2>/dev/null
+wait %1 2>/dev/null
+
+cat .vibe/project.json
+# Expect: { "id": "..." }
+```
+
+## 2. List via CLI
+
+```bash
+/tmp/vibeserve projects
+```
+
+Expect: a row showing "Coffee Corner", status "running", 2/2 tables/routes.
+
+## 3. View in dashboard
+
+Open http://localhost:3000/dashboard in your browser — Coffee Corner appears as a card.
+
+Click the card → detail page shows:
+- Status: running
+- Tables: 2
+- Routes: 2
+- Last sync: a recent timestamp
+
+## 4. Cross-surface delete
+
+On the detail page, click **Delete project**. Confirm the dialog.
+
+Back in the terminal:
+
+```bash
+/tmp/vibeserve projects
+```
+
+Expect: "No projects yet. Run 'vibeserve dev' in a project dir to sync."
+
+## 5. Re-sync creates a new project
+
+```bash
+cd /tmp/sync-demo
+# Clean the local cache first so CLI re-creates rather than PATCHes a stale ID:
+rm .vibe/project.json
+/tmp/vibeserve dev &
+sleep 5
+kill %1 2>/dev/null
+wait %1 2>/dev/null
+```
+
+Refresh the dashboard — Coffee Corner is back with a new ID.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `vibeserve projects` shows nothing after `vibeserve dev` | Sync is async (goroutine) — give it a few extra seconds, or check the log for "project sync failed" |
+| Dashboard returns 401 repeatedly | Token expired — clear `~/.vibeserve/credentials.json` and re-login |
+| Dev server won't start | Check `.vibe/config.yaml` has a provider.api_key (use "SKIP" if you just want to test sync, not LLM features) |
+| `.data/db.json` missing users on restart | Confirm `.data/` is gitignored in the web repo; the file persists across restarts but not across `.data/` deletion |
