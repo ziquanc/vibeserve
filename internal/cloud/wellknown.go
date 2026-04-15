@@ -32,6 +32,6 @@ func GenerateWellKnown(m *manifest.Manifest) WellKnown {
 		Name:        m.Name,
 		Description: m.Description,
 		Endpoints:   endpoints,
-		OpenAPI:     "/openapi.yaml",
+		OpenAPI:     "/_api/openapi.yaml",
 	}
 }

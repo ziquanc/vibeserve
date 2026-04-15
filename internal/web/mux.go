@@ -10,13 +10,16 @@ import (
 )
 
 // NewConsoleMux builds the combined HTTP handler that routes:
-//   - /_console/     → embedded static files (index.html, etc.)
-//   - /_console      → redirect to /_console/
-//   - /_api/         → Console REST API handlers
-//   - /_api/blueprint → Blueprint preview API
-//   - /_blueprint    → Blueprint preview HTML page
-//   - /_ws           → WebSocket hub
-//   - /              → existing API handler (trie-based)
+//   - /_console/                  → embedded static files (index.html, etc.)
+//   - /_console                   → redirect to /_console/
+//   - /_api/                      → Console REST API handlers
+//   - /_api/blueprint             → Blueprint preview API
+//   - /_api/openapi.yaml          → Generated OpenAPI spec
+//   - /_blueprint                 → Blueprint preview HTML page
+//   - /_swagger                   → Swagger UI page
+//   - /_ws                        → WebSocket hub
+//   - /.well-known/vibeserve.json → Public manifest descriptor for AI agents
+//   - /                           → existing API handler (trie-based)
 func NewConsoleMux(apiHandler http.Handler, console *Console, wsHub *WSHub, blueprint *BlueprintHandler, m *manifest.Manifest) http.Handler {
 	mux := http.NewServeMux()
 

@@ -26,8 +26,8 @@ func TestGenerateWellKnown(t *testing.T) {
 	if got.Description != "Local coffee shop with delivery" {
 		t.Errorf("Description: got %q", got.Description)
 	}
-	if got.OpenAPI != "/openapi.yaml" {
-		t.Errorf("OpenAPI: got %q, want /openapi.yaml", got.OpenAPI)
+	if got.OpenAPI != "/_api/openapi.yaml" {
+		t.Errorf("OpenAPI: got %q, want /_api/openapi.yaml", got.OpenAPI)
 	}
 	if len(got.Endpoints) != 3 {
 		t.Fatalf("Endpoints: got %d, want 3", len(got.Endpoints))
