@@ -671,7 +671,7 @@ func runDev(configPath, manifestPath, host string, port int, proxyMode bool) err
 			return fmt.Errorf("load manifest: %w", err)
 		}
 		log.Printf("Loaded manifest: %s (%d routes, %d schemas)", m.Name, len(m.Routes), len(m.Schemas))
-		trySyncProject(manifestPath, m)
+		go trySyncProject(manifestPath, m)
 	} else {
 		m = nil
 		log.Println("No manifest found; starting fresh")
